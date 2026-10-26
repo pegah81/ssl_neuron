@@ -10,9 +10,9 @@
         "teacher_temp": 0.06
     },
     "data": {
-        "class": "allen",
-        "path": "data/",
-        "n_nodes": 200,
+        "class": "eyewire2",
+        "path": "/gpfs01/berens/user/pgivehchian/data/",
+        "n_nodes": 560,
         "feat_dim": 3,
         "batch_size": 64,
         "num_workers": 6,
