@@ -14,7 +14,7 @@
         "path": "/gpfs01/berens/user/pgivehchian/data/",
         "n_nodes": 560,
         "feat_dim": 3,
-        "batch_size": 64,
+        "batch_size": 16,
         "num_workers": 6,
         "jitter_var": 1,
         "translate_var": 10,
@@ -27,7 +27,7 @@
         "exp_decay": 0.5
     },
     "trainer": {
-        "ckpt_dir": "ssl_neuron/ckpts/",
+        "ckpt_dir": "ckpts/",
         "save_ckpt_every": 50,
         "seed": null
     }
