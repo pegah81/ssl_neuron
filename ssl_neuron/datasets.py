@@ -107,7 +107,6 @@ class GraphDataset(Dataset):
 
         # Compute new adjacency matrix.
         adj_matrix = neighbors_to_adjacency_torch(neighbors2, not_deleted)
-        
         assert adj_matrix.shape == (self.n_nodes, self.n_nodes), '{} {}'.format(adj_matrix.shape)
         
         return neighbors2, adj_matrix, not_deleted
@@ -150,7 +149,7 @@ class GraphDataset(Dataset):
     
     def __getsingleitem__(self, index): 
         cell = self.cells[index]
-        return cell['features'], cell['neighbors']
+        return cell['features'], cell['neighbors'], cell['cell_id']
     
     
     def __getitem__(self, index): 
