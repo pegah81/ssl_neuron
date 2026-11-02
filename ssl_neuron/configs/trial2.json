@@ -12,14 +12,15 @@
     "data": {
         "class": "eyewire2",
         "path": "/gpfs01/berens/user/pgivehchian/data/",
-        "n_nodes": 560,
+        "n_nodes": 512,
+        "cache_nodes": 2048,
         "feat_dim": 3,
         "batch_size": 16,
         "num_workers": 6,
-        "jitter_var": 1,
+        "jitter_var": 0.25,
         "translate_var": 10,
-        "rotation_axis": "y",
-        "n_drop_branch": 10
+        "rotation_axis": "z",
+        "n_drop_branch": 5
     },
     "optimizer": {
         "lr": 0.0001,
@@ -28,7 +29,9 @@
     },
     "trainer": {
         "ckpt_dir": "ckpts/",
-        "save_ckpt_every": 50,
-        "seed": null
+        "save_ckpt_every": 10,
+        "seed": null,
+        "losses_dir": "/gpfs01/berens/user/pgivehchian/ssl_neuron/outputs/loss",
+        "latents_dir": "/gpfs01/berens/user/pgivehchian/ssl_neuron/outputs/latents"
     }
 }

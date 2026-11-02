@@ -17,19 +17,21 @@
         "feat_dim": 3,
         "batch_size": 16,
         "num_workers": 6,
-        "jitter_var": 0.25,
+        "jitter_var": 1,
         "translate_var": 10,
         "rotation_axis": "z",
-        "n_drop_branch": 5
+        "n_drop_branch": 10
     },
     "optimizer": {
         "lr": 0.0001,
-        "max_iter": 50000,
+        "max_iter": 8000,
         "exp_decay": 0.5
     },
     "trainer": {
         "ckpt_dir": "ckpts/",
         "save_ckpt_every": 10,
-        "seed": null
+        "seed": null,
+        "losses_dir": "/gpfs01/berens/user/pgivehchian/ssl_neuron/outputs/loss",
+        "latents_dir": "/gpfs01/berens/user/pgivehchian/ssl_neuron/outputs/latents"
     }
 }

@@ -31,6 +31,7 @@
         "ckpt_dir": "ckpts/",
         "save_ckpt_every": 10,
         "seed": null,
-        "losses_dir": "/gpfs01/berens/user/pgivehchian/ssl_neuron/outputs/loss"
+        "losses_dir": "/gpfs01/berens/user/pgivehchian/ssl_neuron/outputs/loss",
+        "latents_dir": "/gpfs01/berens/user/pgivehchian/ssl_neuron/outputs/latents"
     }
 }
