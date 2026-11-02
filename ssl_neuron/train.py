@@ -1,7 +1,10 @@
 import os
 import torch
 import torch.optim as optim
+import numpy as np
 from ssl_neuron.utils import AverageMeter, compute_eig_lapl_torch_batch
+import time
+from datetime import timedelta
 
 class Trainer(object):
     def __init__(self, config, model, dataloaders):
@@ -23,6 +26,8 @@ class Trainer(object):
         self.lr_decay = self.max_iter // 5
         
         self.optimizer = optim.Adam(list(self.model.parameters()), lr=0)
+
+        self.loss_history = []
         
         
     def set_lr(self): 
@@ -37,18 +42,65 @@ class Trainer(object):
         return lr
         
 
-    def train(self):     
+    
+   
+    def train(self):
         self.curr_iter = 0
         epoch = 0
+        previous_loss = None
+        start_time = time.perf_counter()
+
         while self.curr_iter < self.max_iter:
             # Run one epoch.
+            epoch_start = time.perf_counter()
             self._train_epoch(epoch)
+
+            # Time elapsed and estimated remaining time.
+            elapsed = time.perf_counter() - start_time
+            avg_iter_time = elapsed / self.curr_iter
+            remaining_iters = self.max_iter - self.curr_iter
+            remaining = avg_iter_time * remaining_iters
+
+            print(
+                f"Epoch {epoch} | "
+                f"Elapsed: {timedelta(seconds=int(elapsed))} | "
+                f"ETA: {timedelta(seconds=int(remaining))} | "
+                f"Epoch time: {timedelta(seconds=int(time.perf_counter() - epoch_start))}"
+            )
+
+            # current_loss = self.loss
+
+            # if previous_loss is not None:
+            #     improvement = previous_loss - current_loss
+            #     if improvement < 0.05:
+            #         print(
+            #             f"Stopping training: loss improvement "
+            #             f"({improvement:.4f}) is less than 0.1."
+            #         )
+            #         self._save_checkpoint(epoch)
+            #         break
+            # previous_loss = current_loss
 
             if epoch % self.save_every == 0:
                 # Save checkpoint.
                 self._save_checkpoint(epoch)
-            
+
             epoch += 1
+
+        total_time = time.perf_counter() - start_time
+        print(
+            f"\nTraining complete! "
+            f"Total time: {timedelta(seconds=int(total_time))}"
+        )
+        try:
+            training_loss_path = self.config['trainer']['losses_dir']
+            np.save(
+                os.path.join(training_loss_path, 'training_loss.npy'),
+                np.array(self.loss_history)
+            )
+        except Exception as e:
+            print(f"Could not save training losses: {e}")
+
 
 
     def _train_epoch(self, epoch):
@@ -77,6 +129,8 @@ class Trainer(object):
             losses.update(loss.detach(), n)
             self.curr_iter += 1
 
+        self.loss = losses.avg.item() if torch.is_tensor(losses.avg) else losses.avg
+        self.loss_history.append(self.loss)
         print('Epoch {} | Loss {:.4f}'.format(epoch, losses.avg))
 
 

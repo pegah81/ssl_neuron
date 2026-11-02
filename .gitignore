@@ -4,4 +4,8 @@
 **/.ipynb_checkpoints/
 
 ssl_neuron/data/skeletons/
+ssl_neuron/ckpts
 ssl_neuron/data/cell_types/
+ssl_neuron/demos/RGC_celltype_comparisons
+outputs
+.venv39
