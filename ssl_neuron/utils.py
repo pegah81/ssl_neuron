@@ -115,7 +115,7 @@ def rotate_graph(pos_matrix, axis=None):
     return rot_pos_matrix
 
 
-def jitter_node_pos(node_positions, scale=1):
+def jitter_node_pos(node_positions, scale=(1,1,0.2)):
     """ 
     Randomly jitter nodes in xyz-direction.
 
@@ -123,16 +123,13 @@ def jitter_node_pos(node_positions, scale=1):
         node_positions: Matrix with xyz-node positions (N x 3).
         scale: Scale factor for jittering.
     """
-    return node_positions + (torch.randn(*node_positions.shape).numpy() * scale)
+    noise = np.random.randn(*node_positions.shape) * scale
+    return node_positions + noise
 
 
-def translate_soma_pos(node_positions, scale=1):
-    """ 
-    Randomly translate the position of the entire grpah.
-
-    Args:
-        node_positions: Matrix with xyz-node positions (N x 3).
-        scale: Scale factor for jittering.
+def translate_soma_pos(node_positions, scale=(5, 5, 2)):
+    """
+    Randomly translate the position of the entire graph.
     """
     new_node_features = node_positions.copy()
     jitter = torch.randn(3).numpy() * scale
@@ -371,7 +368,88 @@ def plot_neuron(neighbors, node_feats, ax1=0, ax2=1, soma_id=0, ax=None):
     ax.scatter(node_feats[soma_id][ax1], node_feats[soma_id][ax2], color=colors[0], s=10, zorder=10)
     
     sns.despine(trim=1)
-    
+
+
+
+def plot_random_neurons_by_type(
+    cell_meta,
+    dset,
+    cell_types,
+    n_samples=5,
+    random_state=42
+):
+    rng = np.random.default_rng(random_state)
+
+    cell_id_to_idx = {
+        str(cell['cell_id']): idx
+        for idx, cell in dset.cells.items()
+    }
+
+    for cell_type in cell_types:
+
+        subset = cell_meta[
+            cell_meta['celltype_final'] == cell_type
+        ]
+
+        available_ids = [
+            str(cell_id)
+            for cell_id in subset['cell_id']
+            if str(cell_id) in cell_id_to_idx
+        ]
+
+        if not available_ids:
+            print(f"No cells available for {cell_type}")
+            continue
+
+        sampled_ids = rng.choice(
+            available_ids,
+            size=min(n_samples, len(available_ids)),
+            replace=False
+        )
+
+        n = len(sampled_ids)
+
+        fig, axes = plt.subplots(
+            2, n,
+            figsize=(4 * n, 8),
+            squeeze=False
+        )
+
+        for j, cell_id in enumerate(sampled_ids):
+
+            idx = cell_id_to_idx[cell_id]
+            feat, neigh, _ = dset.__getsingleitem__(idx)
+
+            plot_neuron(
+                neighbors=neigh,
+                node_feats=feat,
+                ax1=0,
+                ax2=1,
+                soma_id=0,
+                ax=axes[0, j]
+            )
+
+            axes[0, j].set_title(f"{cell_id}\nXY view", fontsize=9)
+
+            plot_neuron(
+                neighbors=neigh,
+                node_feats=feat,
+                ax1=0,
+                ax2=2,
+                soma_id=0,
+                ax=axes[1, j]
+            )
+
+            axes[1, j].set_title(f"{cell_id}\nXZ view", fontsize=9)
+
+        fig.suptitle(
+            f"{cell_type} — {n} randomly selected cells",
+            fontsize=14
+        )
+
+        plt.tight_layout()
+        plt.show()
+
     
 def plot_tsne(z, labels, targets, colors=None):
     """ Plot t-SNE clustering. """
