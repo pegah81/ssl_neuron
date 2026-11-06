@@ -2,8 +2,15 @@ import numpy as np
 import pandas as pd
 import networkx as nx
 from scipy.spatial.transform import Rotation as R
-from ssl_neuron.utils import neighbors_to_adjacency
+from ssl_neuron.utils import neighbors_to_adjacency, remap_neighbors
+import torch
+import pandas as pd
+from tqdm import tqdm
+import os
 
+from ssl_neuron.datasets import GraphDataset
+from ssl_neuron.utils import neighbors_to_adjacency_torch, compute_eig_lapl_torch_batch
+from ssl_neuron.graphdino import create_model
 
 def connect_graph(adj_matrix, neighbors, features, verbose=False):
     """
@@ -130,3 +137,67 @@ def remove_axon(neighbors, features, soma_id):
     soma_id = old2new[soma_id]
 
     return neighbors, features, soma_id
+
+
+
+def extract_latents(config):
+
+    cell_meta = pd.read_csv(os.path.join(config['data']['path'], 'cell_meta.csv'))
+    cell_meta['cell_id'] = cell_meta['cell_id'].astype(str)
+
+    model = create_model(config)
+
+    state_dict = torch.load(os.path.join(config['trainer']['ckpt_dir'], f"{config['trainer']['trial']}.pt"))
+
+    model.load_state_dict(state_dict)
+
+    model.eval()
+    model.cuda();
+
+    dset = GraphDataset(config, mode='all')
+
+
+    latents = np.zeros((dset.num_samples, config['model']['dim']))
+
+    cell_meta['latent'] = pd.Series(
+        [None] * len(cell_meta),
+        index=cell_meta.index,
+        dtype=object
+    )
+
+    cell_meta['cell_id'] = cell_meta['cell_id'].astype(str)
+
+    for i in tqdm(range(dset.num_samples)):
+        feat, neigh, cell_id = dset.__getsingleitem__(i)
+        cell_id = str(cell_id)
+
+        adj = neighbors_to_adjacency_torch(
+            neigh, list(neigh.keys())
+        ).float().cuda()[None, :]
+
+        lapl = compute_eig_lapl_torch_batch(
+            adj,
+            pos_enc_dim=config['model']['pos_dim']
+        ).float().cuda()
+
+        feat = torch.from_numpy(feat).float().cuda()[None, :]
+
+        with torch.no_grad():
+            embedding = model.student_encoder.forward(feat, adj, lapl)[0]
+            embedding = embedding.cpu().numpy().squeeze()
+
+        latents[i] = embedding
+
+        mask = cell_meta['cell_id'] == cell_id
+
+        for idx in cell_meta.index[mask]:
+            cell_meta.at[idx, 'latent'] = embedding
+
+    print("\nEmbedding extraction complete!")
+    print("Latents matrix shape:", latents.shape)
+    print("Rows with embeddings:", cell_meta['latent'].notna().sum())
+
+    cell_meta.to_csv(
+        os.path.join(config['trainer']['latents_dir'], f"{config['trainer']['trial']}.csv"),
+        index=False
+    )

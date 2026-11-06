@@ -5,6 +5,7 @@ import numpy as np
 from ssl_neuron.utils import AverageMeter, compute_eig_lapl_torch_batch
 import time
 from datetime import timedelta
+from data.data_utils import extract_latents
 
 class Trainer(object):
     def __init__(self, config, model, dataloaders):
@@ -27,7 +28,8 @@ class Trainer(object):
         
         self.optimizer = optim.Adam(list(self.model.parameters()), lr=0)
 
-        self.loss_history = []
+        self.train_loss_history = []
+        self.val_loss_history = []
         
         
     def set_lr(self): 
@@ -47,13 +49,13 @@ class Trainer(object):
     def train(self):
         self.curr_iter = 0
         epoch = 0
-        previous_loss = None
         start_time = time.perf_counter()
 
         while self.curr_iter < self.max_iter:
             # Run one epoch.
             epoch_start = time.perf_counter()
             self._train_epoch(epoch)
+            self._validate_epoch(epoch)
 
             # Time elapsed and estimated remaining time.
             elapsed = time.perf_counter() - start_time
@@ -68,24 +70,13 @@ class Trainer(object):
                 f"Epoch time: {timedelta(seconds=int(time.perf_counter() - epoch_start))}"
             )
 
-            # current_loss = self.loss
-
-            # if previous_loss is not None:
-            #     improvement = previous_loss - current_loss
-            #     if improvement < 0.05:
-            #         print(
-            #             f"Stopping training: loss improvement "
-            #             f"({improvement:.4f}) is less than 0.1."
-            #         )
-            #         self._save_checkpoint(epoch)
-            #         break
-            # previous_loss = current_loss
-
             if epoch % self.save_every == 0:
                 # Save checkpoint.
                 self._save_checkpoint(epoch)
 
             epoch += 1
+
+        self._save_checkpoint(epoch, final=True)
 
         total_time = time.perf_counter() - start_time
         print(
@@ -93,11 +84,24 @@ class Trainer(object):
             f"Total time: {timedelta(seconds=int(total_time))}"
         )
         try:
-            training_loss_path = self.config['trainer']['losses_dir']
-            np.save(
-                os.path.join(training_loss_path, 'training_loss.npy'),
-                np.array(self.loss_history)
+            loss_path = os.path.join(
+                self.config['trainer']['losses_dir'],
+                self.config['trainer']['trial']
             )
+            os.makedirs(loss_path, exist_ok=True)
+            np.save(
+                os.path.join(loss_path, 'training_loss.npy'),
+                np.array(self.train_loss_history)
+            )
+
+            np.save(
+                os.path.join(loss_path, 'val_loss.npy'),
+                np.array(self.val_loss_history)
+            )
+
+            extract_latents(self.config)
+
+
         except Exception as e:
             print(f"Could not save training losses: {e}")
 
@@ -130,12 +134,38 @@ class Trainer(object):
             self.curr_iter += 1
 
         self.loss = losses.avg.item() if torch.is_tensor(losses.avg) else losses.avg
-        self.loss_history.append(self.loss)
+        self.train_loss_history.append(self.loss)
         print('Epoch {} | Loss {:.4f}'.format(epoch, losses.avg))
 
 
-    def _save_checkpoint(self, epoch):
-        filename = 'ckpt_{}.pt'.format(epoch)
+    def _validate_epoch(self, epoch):
+        self.model.eval()
+        losses = AverageMeter()
+
+        with torch.no_grad():
+            for data in self.val_loader:
+                f1, f2, a1, a2 = [
+                    x.float().to(self.device, non_blocking=True)
+                    for x in data
+                ]
+
+                l1 = compute_eig_lapl_torch_batch(a1)
+                l2 = compute_eig_lapl_torch_batch(a2)
+
+                loss = self.model(f1, f2, a1, a2, l1, l2)
+
+                losses.update(loss.detach(), a1.shape[0])
+        val_loss = losses.avg.item()
+        self.val_loss_history.append(val_loss)
+        print(f"Epoch {epoch} | Validation Loss: {val_loss:.4f}")
+
+        self.model.train()
+
+    def _save_checkpoint(self, epoch, final=False):
+        if final:
+            filename = f"{self.config['trainer']['trial']}.pt"
+        else:
+            filename = f"ckpt_{epoch}.pt"
         PATH = os.path.join(self.ckpt_dir, filename)
         torch.save(self.model.state_dict(), PATH)
         print('Save model after epoch {} as {}.'.format(epoch, filename))
