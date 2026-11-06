@@ -6,7 +6,10 @@ from collections import defaultdict
 from scipy.spatial.transform import Rotation as R
 from sklearn.metrics.pairwise import cosine_distances
 from collections import Counter
-    
+import os
+import pandas as pd
+
+
 class AverageMeter(object):
     """ Computes and stores the average and current value."""
     def __init__(self):
@@ -471,7 +474,8 @@ def knn_accuracy(
         splits=["train", "test"],
         confidence=["High"],
         cell_types=None,
-        k=5
+        k=5,
+        print_val = False
     ):
         df = cell_meta[cell_meta["split"].isin(splits)].copy()
         df = df[df["celltype_conf"].isin(confidence)]
@@ -507,15 +511,92 @@ def knn_accuracy(
 
         accuracy = np.mean(true_labels == np.array(predictions))
 
-        print(f"Cells evaluated: {len(df)}")
-        print(f"Splits: {splits}")
-        print(f"Confidence: {confidence}")
-        print(f"Cell types: {cell_types if cell_types is not None else 'All'}")
-        print(f"k: {k}")
-        print(f"KNN accuracy: {accuracy:.4f} ({accuracy:.2%})")
+        if(print_val):
+            print(f"Cells evaluated: {len(df)}")
+            print(f"Splits: {splits}")
+            print(f"Confidence: {confidence}")
+            print(f"Cell types: {cell_types if cell_types is not None else 'All'}")
+            print(f"k: {k}")
+            print(f"KNN accuracy: {accuracy:.4f} ({accuracy:.2%})")
 
         results = df[["cell_id", "celltype_final", "split", "celltype_conf"]].copy()
         results["predicted_celltype"] = predictions
         results["correct"] = results["celltype_final"] == results["predicted_celltype"]
 
         return accuracy, results
+
+
+def save_trial_results(
+        cell_meta,
+        config,
+        TRIAL,
+        confidence=["High"],
+        k=5
+    ):
+        accuracy_all, _ = knn_accuracy(
+            cell_meta,
+            splits=["train", "val", "test"],
+            confidence=confidence,
+            k=k
+        )
+
+        accuracy_train, _ = knn_accuracy(
+            cell_meta,
+            splits=["train"],
+            confidence=confidence,
+            k=k
+        )
+
+        accuracy_val, _ = knn_accuracy(
+            cell_meta,
+            splits=["val"],
+            confidence=confidence,
+            k=k
+        )
+
+        results = {
+            "trial": TRIAL,
+            "all_accuracy": accuracy_all,
+            "train_accuracy": accuracy_train,
+            "val_accuracy": accuracy_val,
+            "k": k,
+            "confidence": ", ".join(confidence),
+
+            "max_iter": config["optimizer"]["max_iter"],
+            "lr": config["optimizer"]["lr"],
+            "exp_decay": config["optimizer"]["exp_decay"],
+
+            "n_nodes": config["data"]["n_nodes"],
+            "jitter_var": str(config["data"]["jitter_var"]),
+            "translate_var": str(config["data"]["translate_var"]),
+            "rotation_axis": config["data"]["rotation_axis"],
+            "n_drop_branch": config["data"]["n_drop_branch"],
+
+            "dim": config["model"]["dim"],
+            "depth": config["model"]["depth"],
+            "n_head": config["model"]["n_head"],
+            "pos_dim": config["model"]["pos_dim"],
+            "move_avg": config["model"]["move_avg"],
+            "teacher_temp": config["model"]["teacher_temp"]
+        }
+
+        file_path = "/gpfs01/berens/user/pgivehchian/ssl_neuron/outputs/results.csv"
+
+        results_df = pd.DataFrame([results])
+
+        if os.path.exists(file_path):
+            results_df.to_csv(
+                file_path,
+                mode="a",
+                header=False,
+                index=False
+            )
+        else:
+            results_df.to_csv(
+                file_path,
+                index=False
+            )
+
+        print(f"\nResults saved to {file_path}")
+
+        return results_df
