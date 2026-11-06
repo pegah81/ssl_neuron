@@ -4,7 +4,8 @@ import seaborn as sns
 import matplotlib.pylab as plt
 from collections import defaultdict
 from scipy.spatial.transform import Rotation as R
-
+from sklearn.metrics.pairwise import cosine_distances
+from collections import Counter
     
 class AverageMeter(object):
     """ Computes and stores the average and current value."""
@@ -463,3 +464,58 @@ def plot_tsne(z, labels, targets, colors=None):
                     color=colors[label])
     plt.legend(bbox_to_anchor=(1,1))
     plt.axis('off')
+
+
+def knn_accuracy(
+        cell_meta,
+        splits=["train", "test"],
+        confidence=["High"],
+        cell_types=None,
+        k=5
+    ):
+        df = cell_meta[cell_meta["split"].isin(splits)].copy()
+        df = df[df["celltype_conf"].isin(confidence)]
+
+        if cell_types is not None:
+            df = df[df["celltype_final"].isin(cell_types)]
+
+        df = df[df["celltype_final"].notna()].copy()
+
+        df = df[
+            df["latent"].apply(
+                lambda x: x is not None and len(x) > 0
+            )
+        ].copy()
+
+        if len(df) <= k:
+            raise ValueError("Not enough cells for the selected k.")
+
+        X = np.stack(df["latent"].apply(np.asarray).to_numpy())
+
+        distances = cosine_distances(X)
+        np.fill_diagonal(distances, np.inf)
+
+        nearest_indices = np.argsort(distances, axis=1)[:, :k]
+
+        true_labels = df["celltype_final"].to_numpy()
+        predictions = []
+
+        for neighbors in nearest_indices:
+            neighbor_labels = true_labels[neighbors]
+            prediction = Counter(neighbor_labels).most_common(1)[0][0]
+            predictions.append(prediction)
+
+        accuracy = np.mean(true_labels == np.array(predictions))
+
+        print(f"Cells evaluated: {len(df)}")
+        print(f"Splits: {splits}")
+        print(f"Confidence: {confidence}")
+        print(f"Cell types: {cell_types if cell_types is not None else 'All'}")
+        print(f"k: {k}")
+        print(f"KNN accuracy: {accuracy:.4f} ({accuracy:.2%})")
+
+        results = df[["cell_id", "celltype_final", "split", "celltype_conf"]].copy()
+        results["predicted_celltype"] = predictions
+        results["correct"] = results["celltype_final"] == results["predicted_celltype"]
+
+        return accuracy, results
