@@ -42,6 +42,7 @@ class GraphDataset(Dataset):
             soma_id = 0
 
             features = np.load(Path(data_path, 'skeletons', str(cell_id), 'features.npy'))
+            original_n_nodes = len(features)
             with open(Path(data_path, 'skeletons', str(cell_id), 'neighbors.pkl'), 'rb') as f:
                 neighbors = pickle.load(f)
 
@@ -72,12 +73,29 @@ class GraphDataset(Dataset):
                     'distances': distances,
                     'soma_id': soma_id,
                     'leaf_branch_nodes': leaf_branch_nodes,
+                    'original_n_nodes': original_n_nodes,
                 }
 
                 self.cells[count] = item
                 count += 1
 
+        # normalize cell counts
+        original_counts = [
+            item['original_n_nodes']
+            for item in self.cells.values()
+        ]
+
+        self.log_n_min = np.log1p(min(original_counts))
+        self.log_n_max = np.log1p(max(original_counts))
+
         self.num_samples = len(self.cells)
+
+    def _normalize_node_count(self, n):
+        log_n = np.log1p(n)
+
+        return (log_n - self.log_n_min) / (
+            self.log_n_max - self.log_n_min + 1e-8
+        )
 
     def __len__(self):
         return self.num_samples
@@ -149,7 +167,7 @@ class GraphDataset(Dataset):
     
     def __getsingleitem__(self, index): 
         cell = self.cells[index]
-        return cell['features'], cell['neighbors'], cell['cell_id']
+        return cell['features'], cell['neighbors'], cell['cell_id'], cell['original_n_nodes']
     
     
     def __getitem__(self, index): 
@@ -158,8 +176,12 @@ class GraphDataset(Dataset):
         # Compute two different views through augmentations.
         features1, adj_matrix1 = self._augment(cell)
         features2, adj_matrix2 = self._augment(cell)
+        n_nodes = self._normalize_node_count(
+            cell['original_n_nodes']
+        )
 
-        return features1, features2, adj_matrix1, adj_matrix2
+        n_nodes = torch.tensor(n_nodes, dtype=torch.float32)
+        return features1, features2, adj_matrix1, adj_matrix2, n_nodes
     
 
 def build_dataloader(config, use_cuda=torch.cuda.is_available()):

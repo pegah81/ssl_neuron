@@ -154,7 +154,19 @@ class GraphTransformer(nn.Module):
             nn.Linear(dim * 2, dim)
         )
 
-    def forward(self, node_feat, adj, lapl):
+        self.count_encoder = nn.Sequential(
+            nn.Linear(1, 32),
+            nn.GELU(),
+            nn.Linear(32, dim)
+        )
+
+        self.fusion = nn.Sequential(
+            nn.Linear(dim * 2, dim),
+            nn.GELU(),
+            nn.LayerNorm(dim)
+        )
+
+    def forward(self, node_feat, adj, lapl, n_nodes):
         B, N, _ = node_feat.shape
 
         # Compute initial node embedding.
@@ -181,6 +193,14 @@ class GraphTransformer(nn.Module):
             x = block(x, adj_cls)
         x = x[:, 0]
         x = self.mlp_head(x)
+
+        count_embedding = self.count_encoder(
+            n_nodes.float().view(-1, 1)
+        )
+
+        x = self.fusion(
+            torch.cat([x, count_embedding], dim=-1)
+        )
 
         return x, self.projector(x)
 
@@ -259,19 +279,20 @@ class GraphDINO(nn.Module):
         new_teacher_centers = self.teacher_centering_ema_updater.update_average(self.teacher_centers, self.previous_centers)
         self.teacher_centers.copy_(new_teacher_centers)
 
-    def forward(self, node_feat1, node_feat2, adj1, adj2, lapl1, lapl2):
+    def forward(self, node_feat1, node_feat2, adj1, adj2, lapl1, lapl2, n_nodes):
         batch_size = node_feat1.shape[0]
 
         # Concatenate the two views to compute embeddings as one batch.
         node_feat = torch.cat([node_feat1, node_feat2], dim=0)
         adj = torch.cat([adj1, adj2], dim=0)
         lapl = torch.cat([lapl1, lapl2], dim=0)
+        n_nodes = torch.cat([n_nodes, n_nodes], dim=0)
 
-        _, student_proj = self.student_encoder(node_feat, adj, lapl)
+        _, student_proj = self.student_encoder(node_feat, adj, lapl, n_nodes)
         student_proj1, student_proj2 = torch.split(student_proj, batch_size, dim=0)
 
         with torch.no_grad():
-            _, teacher_proj = self.teacher_encoder(node_feat, adj, lapl)
+            _, teacher_proj = self.teacher_encoder(node_feat, adj, lapl, n_nodes)
             teacher_proj1, teacher_proj2 = torch.split(teacher_proj, batch_size, dim=0)
 
         teacher_logits_avg = teacher_proj.mean(dim = 0)

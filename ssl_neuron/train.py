@@ -111,7 +111,7 @@ class Trainer(object):
         self.model.train()
         losses = AverageMeter()
         for i, data in enumerate(self.train_loader, 0):
-            f1, f2, a1, a2 = [x.float().to(self.device, non_blocking=True) for x in data]
+            f1, f2, a1, a2, n_nodes = [x.float().to(self.device, non_blocking=True) for x in data]
             n = a1.shape[0]
 
             # compute positional encoding
@@ -121,7 +121,7 @@ class Trainer(object):
             self.lr = self.set_lr()
             self.optimizer.zero_grad(set_to_none=True)
             
-            loss = self.model(f1, f2, a1, a2, l1, l2)
+            loss = self.model(f1, f2, a1, a2, l1, l2, n_nodes)
 
             # optimize 
             loss.sum().backward()
@@ -144,7 +144,7 @@ class Trainer(object):
 
         with torch.no_grad():
             for data in self.val_loader:
-                f1, f2, a1, a2 = [
+                f1, f2, a1, a2, n_nodes = [
                     x.float().to(self.device, non_blocking=True)
                     for x in data
                 ]
@@ -152,7 +152,7 @@ class Trainer(object):
                 l1 = compute_eig_lapl_torch_batch(a1)
                 l2 = compute_eig_lapl_torch_batch(a2)
 
-                loss = self.model(f1, f2, a1, a2, l1, l2)
+                loss = self.model(f1, f2, a1, a2, l1, l2, n_nodes)
 
                 losses.update(loss.detach(), a1.shape[0])
         val_loss = losses.avg.item()
