@@ -17,14 +17,14 @@
         "feat_dim": 3,
         "batch_size": 16,
         "num_workers": 6,
-        "jitter_var": [1, 1, 0.2],
+        "jitter_var": [1, 1, 0],
         "translate_var": [5, 5, 0],
         "rotation_axis": "z",
         "n_drop_branch": 10
     },
     "optimizer": {
         "lr": 0.0001,
-        "max_iter": 20000,
+        "max_iter": 50000,
         "exp_decay": 0.5
     },
     "trainer": {
