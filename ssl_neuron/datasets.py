@@ -167,7 +167,7 @@ class GraphDataset(Dataset):
     
     def __getsingleitem__(self, index): 
         cell = self.cells[index]
-        return cell['features'], cell['neighbors'], cell['cell_id'], cell['original_n_nodes']
+        return cell['features'], cell['neighbors'], cell['cell_id']
     
     
     def __getitem__(self, index): 
@@ -176,12 +176,8 @@ class GraphDataset(Dataset):
         # Compute two different views through augmentations.
         features1, adj_matrix1 = self._augment(cell)
         features2, adj_matrix2 = self._augment(cell)
-        n_nodes = self._normalize_node_count(
-            cell['original_n_nodes']
-        )
 
-        n_nodes = torch.tensor(n_nodes, dtype=torch.float32)
-        return features1, features2, adj_matrix1, adj_matrix2, n_nodes
+        return features1, features2, adj_matrix1, adj_matrix2
     
 
 def build_dataloader(config, use_cuda=torch.cuda.is_available()):
