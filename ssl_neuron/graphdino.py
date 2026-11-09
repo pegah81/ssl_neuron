@@ -259,7 +259,7 @@ class GraphDINO(nn.Module):
         new_teacher_centers = self.teacher_centering_ema_updater.update_average(self.teacher_centers, self.previous_centers)
         self.teacher_centers.copy_(new_teacher_centers)
 
-    def forward(self, node_feat1, node_feat2, adj1, adj2, lapl1, lapl2, n_nodes):
+    def forward(self, node_feat1, node_feat2, adj1, adj2, lapl1, lapl2):
         batch_size = node_feat1.shape[0]
 
         # Concatenate the two views to compute embeddings as one batch.
