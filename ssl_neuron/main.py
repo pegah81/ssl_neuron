@@ -4,7 +4,7 @@ from ssl_neuron.train import Trainer
 from ssl_neuron.graphdino import create_model
 from ssl_neuron.datasets import build_dataloader
 
-TRIAL = "trial11"
+TRIAL = "trial12"
 parser = argparse.ArgumentParser()
 parser.add_argument('--config', help='Path to config file.', type=str, default=f'./configs/{TRIAL}.json')
 

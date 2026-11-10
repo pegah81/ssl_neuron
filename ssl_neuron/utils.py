@@ -6,8 +6,11 @@ from collections import defaultdict
 from scipy.spatial.transform import Rotation as R
 from sklearn.metrics.pairwise import cosine_distances
 from collections import Counter
+from sklearn.metrics import balanced_accuracy_score
+
 import os
 import pandas as pd
+from tqdm import tqdm
 
 
 class AverageMeter(object):
@@ -470,108 +473,141 @@ def plot_tsne(z, labels, targets, colors=None):
 
 
 def knn_accuracy(
-        cell_meta,
-        splits=["train", "test"],
-        confidence=["High"],
-        cell_types=None,
-        k=5,
-        print_val = False
-    ):
-        df = cell_meta[cell_meta["split"].isin(splits)].copy()
-        df = df[df["celltype_conf"].isin(confidence)]
+    latents,
+    subset=None,
+    cell_types=None,
+    k=10,
+    balanced=True,
+    print_val=False
+):
+    space = latents.dropna(subset=["latent", "celltype_final"]).copy()
+    space = space[
+        space["latent"].apply(lambda x: x is not None and len(x) > 0)
+    ].copy()
 
-        if cell_types is not None:
-            df = df[df["celltype_final"].isin(cell_types)]
-
-        df = df[df["celltype_final"].notna()].copy()
-
+    if subset is not None:
+        df = subset.copy()
+        df = df.dropna(subset=["latent", "celltype_final"])
         df = df[
-            df["latent"].apply(
-                lambda x: x is not None and len(x) > 0
-            )
+            df["latent"].apply(lambda x: x is not None and len(x) > 0)
         ].copy()
+    else:
+        df = space.copy()
 
-        if len(df) <= k:
-            raise ValueError("Not enough cells for the selected k.")
+    if cell_types is not None:
+        df = df[df["celltype_final"].isin(cell_types)].copy()
 
-        X = np.stack(df["latent"].apply(np.asarray).to_numpy())
+    if len(space) <= k:
+        raise ValueError("Not enough cells in the whole space for the selected k.")
 
-        distances = cosine_distances(X)
-        np.fill_diagonal(distances, np.inf)
+    if len(df) == 0:
+        raise ValueError("No cells to evaluate.")
 
-        nearest_indices = np.argsort(distances, axis=1)[:, :k]
+    X_space = np.stack(space["latent"].apply(np.asarray).to_numpy())
+    X_eval = np.stack(df["latent"].apply(np.asarray).to_numpy())
 
-        true_labels = df["celltype_final"].to_numpy()
-        predictions = []
+    distances = cosine_distances(X_eval, X_space)
 
-        for neighbors in nearest_indices:
-            neighbor_labels = true_labels[neighbors]
-            prediction = Counter(neighbor_labels).most_common(1)[0][0]
-            predictions.append(prediction)
+    space_indices = pd.Series(
+        np.arange(len(space)), index=space["cell_id"]
+    )
+    for i, cell_id in enumerate(df["cell_id"]):
+        if cell_id in space_indices.index:
+            distances[i, space_indices[cell_id]] = np.inf
 
+    nearest_indices = np.argsort(distances, axis=1)[:, :k]
+
+    space_labels = space["celltype_final"].to_numpy()
+    true_labels = df["celltype_final"].to_numpy()
+
+    predictions = []
+    for neighbors in nearest_indices:
+        neighbor_labels = space_labels[neighbors]
+        prediction = Counter(neighbor_labels).most_common(1)[0][0]
+        predictions.append(prediction)
+
+    if balanced:
+        accuracy = balanced_accuracy_score(true_labels, predictions)
+    else:
         accuracy = np.mean(true_labels == np.array(predictions))
 
-        if(print_val):
-            print(f"Cells evaluated: {len(df)}")
-            print(f"Splits: {splits}")
-            print(f"Confidence: {confidence}")
-            print(f"Cell types: {cell_types if cell_types is not None else 'All'}")
-            print(f"k: {k}")
-            print(f"KNN accuracy: {accuracy:.4f} ({accuracy:.2%})")
+    if print_val:
+        print(f"Cells in whole space: {len(space)}")
+        print(f"Cells evaluated: {len(df)}")
+        print(f"Cell types: {cell_types if cell_types is not None else 'All'}")
+        print(f"k: {k}")
+        print(f"{'Balanced ' if balanced else ''}KNN accuracy: {accuracy:.4f} ({accuracy:.2%})")
 
-        results = df[["cell_id", "celltype_final", "split", "celltype_conf"]].copy()
-        results["predicted_celltype"] = predictions
-        results["correct"] = results["celltype_final"] == results["predicted_celltype"]
+    results = df[["cell_id", "celltype_final"]].copy()
+    results["predicted_celltype"] = predictions
+    results["correct"] = results["celltype_final"] == results["predicted_celltype"]
 
-        return accuracy, results
+    return accuracy, results
+
 
 
 def save_trial_results(
         cell_meta,
         config,
         TRIAL,
-        confidence=["High"],
-        k=5
+        k=10
     ):
-        accuracy_all, _ = knn_accuracy(
-            cell_meta,
-            splits=["train", "val", "test"],
-            confidence=confidence,
-            k=k
+        accuracy_train_val, _ = knn_accuracy(
+            cell_meta[(cell_meta["split"].isin(["train", "val"]))],
+            k=k,
+            balanced=False
         )
 
         accuracy_train, _ = knn_accuracy(
-            cell_meta,
-            splits=["train"],
-            confidence=confidence,
-            k=k
+            cell_meta[(cell_meta["split"].isin(["train"]))],
+            k=k,
+            balanced=False
         )
 
         accuracy_val, _ = knn_accuracy(
-            cell_meta,
-            splits=["val"],
-            confidence=confidence,
-            k=k
+            cell_meta[(cell_meta["split"].isin(["train"]))],
+            cell_meta[(cell_meta["split"].isin(["val"]))],
+            k=k,
+            balanced=False
+        )
+
+        accuracy_train_val_bal, _ = knn_accuracy(
+            cell_meta[(cell_meta["split"].isin(["train", "val"]))],
+            k=k,
+            balanced=True
+        )
+
+        accuracy_train_bal, _ = knn_accuracy(
+            cell_meta[(cell_meta["split"].isin(["train"]))],
+            k=k,
+            balanced=True
+        )
+
+        accuracy_val_bal, _ = knn_accuracy(
+            cell_meta[(cell_meta["split"].isin(["train"]))],
+            cell_meta[(cell_meta["split"].isin(["val"]))],
+            k=k,
+            balanced=True
         )
 
         results = {
             "trial": TRIAL,
-            "all_accuracy": accuracy_all,
-            "train_accuracy": accuracy_train,
-            "val_accuracy": accuracy_val,
+            "train_val_acc": accuracy_train_val,
+            "train_acc": accuracy_train,
+            "val_acc": accuracy_val,
+            "balanced_train_acc": accuracy_train_bal,
+            "balanced_val_acc": accuracy_val_bal,
+            "balanced_train_val_acc": accuracy_train_val_bal,
             "k": k,
-            "confidence": ", ".join(confidence),
-
+            "confidence": None,
             "max_iter": config["optimizer"]["max_iter"],
             "lr": config["optimizer"]["lr"],
             "exp_decay": config["optimizer"]["exp_decay"],
-
             "n_nodes": config["data"]["n_nodes"],
             "jitter_var": str(config["data"]["jitter_var"]),
             "translate_var": str(config["data"]["translate_var"]),
             "rotation_axis": config["data"]["rotation_axis"],
             "n_drop_branch": config["data"]["n_drop_branch"],
-
             "dim": config["model"]["dim"],
             "depth": config["model"]["depth"],
             "n_head": config["model"]["n_head"],
@@ -600,3 +636,5 @@ def save_trial_results(
         print(f"\nResults saved to {file_path}")
 
         return results_df
+
+
