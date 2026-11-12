@@ -144,6 +144,22 @@ def translate_soma_pos(node_positions, scale=(5, 5, 2)):
     return new_node_features
 
 
+def scale_hull(node_positions, scale_range=(-0.05, 0.05)):
+    """Randomly scale the XY hull around the cell center.
+
+    ``scale_range`` is a fractional change: negative values shrink the hull,
+    zero leaves it unchanged, and positive values expand it. Z is unchanged.
+    """
+    if len(node_positions) == 0:
+        return node_positions
+
+    expanded = node_positions.copy()
+    center = expanded[:, :2].mean(axis=0, keepdims=True)
+    scale = 1.0 + np.random.uniform(*scale_range)
+    expanded[:, :2] = center + (expanded[:, :2] - center) * scale
+    return expanded
+
+
 def neighbors_to_adjacency_torch(neighbors, not_deleted):
     """ Create adjacency matrix from list of non-empty neighbors.
     """

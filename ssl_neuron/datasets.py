@@ -6,7 +6,7 @@ from pathlib import Path
 from torch.multiprocessing import Manager
 from torch.utils.data import Dataset, DataLoader
 
-from ssl_neuron.utils import subsample_graph, rotate_graph, jitter_node_pos, translate_soma_pos, get_leaf_branch_nodes, compute_node_distances, drop_random_branch, remap_neighbors, neighbors_to_adjacency_torch
+from ssl_neuron.utils import subsample_graph, rotate_graph, jitter_node_pos, translate_soma_pos, scale_hull, get_leaf_branch_nodes, compute_node_distances, drop_random_branch, remap_neighbors, neighbors_to_adjacency_torch
 
 
 class GraphDataset(Dataset):
@@ -28,6 +28,7 @@ class GraphDataset(Dataset):
         self.rotation_axis = config['data']['rotation_axis']
         self.n_drop_branch = config['data']['n_drop_branch']
         self.translate_var = config['data']['translate_var']
+        self.hull_scale_range = config['data'].get('hull_scale_range', (0.0, 0.0))
         self.n_nodes = config['data']['n_nodes']
 
         # Load cell ids.
@@ -142,6 +143,9 @@ class GraphDataset(Dataset):
         
         # Translate neuron position as a whole.
         jittered_pos = translate_soma_pos(jittered_pos, scale=self.translate_var)
+
+        # Randomly scale the XY hull slightly inward or outward.
+        jittered_pos = scale_hull(jittered_pos, scale_range=self.hull_scale_range)
         
         features[:, :3] = jittered_pos
 
