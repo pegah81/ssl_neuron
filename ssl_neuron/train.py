@@ -5,7 +5,9 @@ import numpy as np
 from ssl_neuron.utils import AverageMeter, compute_eig_lapl_torch_batch
 import time
 from datetime import timedelta
-from data.data_utils import extract_latents
+from data.data_utils import extract_latents, save_knn_accuracy
+from utils import knn_accuracy
+import pandas as pd
 
 class Trainer(object):
     def __init__(self, config, model, dataloaders):
@@ -141,7 +143,7 @@ class Trainer(object):
     def _validate_epoch(self, epoch):
         self.model.eval()
         losses = AverageMeter()
-
+        
         with torch.no_grad():
             for data in self.val_loader:
                 f1, f2, a1, a2 = [
@@ -159,6 +161,9 @@ class Trainer(object):
         self.val_loss_history.append(val_loss)
         print(f"Epoch {epoch} | Validation Loss: {val_loss:.4f}")
 
+        if epoch == 0 or (epoch + 1) % 50 == 0:
+            self._evaluate_knn(epoch)
+
         self.model.train()
 
     def _save_checkpoint(self, epoch, final=False):
@@ -169,3 +174,147 @@ class Trainer(object):
         PATH = os.path.join(self.ckpt_dir, filename)
         torch.save(self.model.state_dict(), PATH)
         print('Save model after epoch {} as {}.'.format(epoch, filename))
+
+    def _extract_knn_latents(self):
+        self.model.eval()
+
+        datasets = [
+            (self.train_loader.dataset, "train"),
+            (self.val_loader.dataset, "val")
+        ]
+
+        latents = []
+
+        with torch.no_grad():
+            for ds, split in datasets:
+                for i in range(len(ds)):
+                    features, neighbors, cell_id = ds.__getsingleitem__(i)
+
+                    features = torch.as_tensor(
+                        features, dtype=torch.float32
+                    ).unsqueeze(0).to(self.device)
+
+                    n_nodes = features.shape[1]
+
+                    adj = torch.zeros(
+                        1, n_nodes, n_nodes, device=self.device
+                    )
+
+                    # Build adjacency from the neighbor dictionary.
+                    for node, node_neighbors in neighbors.items():
+                        node = int(node)
+
+                        if node < 0 or node >= n_nodes:
+                            continue
+
+                        if isinstance(node_neighbors, dict):
+                            node_neighbors = node_neighbors.keys()
+
+                        for neighbor in node_neighbors:
+                            neighbor = int(neighbor)
+
+                            if 0 <= neighbor < n_nodes:
+                                adj[0, node, neighbor] = 1.0
+
+                    # Compute positional encoding exactly as in training.
+                    lapl = compute_eig_lapl_torch_batch(adj)
+
+                    # Extract CLS latent from the EMA teacher encoder.
+                    latent, _ = self.model.teacher_encoder(
+                        features, adj, lapl
+                    )
+
+                    latents.append({
+                        "cell_id": cell_id,
+                        "latent": latent.squeeze(0).cpu().numpy(),
+                        "split": split
+                    })
+
+        latents = pd.DataFrame(latents)
+
+        # Attach cell-type labels.
+        metadata = pd.read_csv(
+            os.path.join(self.config["data"]["path"], "cell_meta.csv"),
+            usecols=["cell_id", "celltype_final"],
+            dtype={"cell_id": str},
+        )
+        latents["cell_id"] = latents["cell_id"].astype(str)
+        latents = latents.merge(metadata, on="cell_id", how="left")
+
+        return latents
+
+
+    def _evaluate_knn(self, epoch):
+
+        latents = self._extract_knn_latents()
+
+        train = latents[latents["split"] == "train"].copy()
+        val = latents[latents["split"] == "val"].copy()
+        train_val = latents.copy()
+
+        k = self.config["trainer"].get("knn_k", 10)
+
+        train_acc, _ = knn_accuracy(
+            latents=train,
+            subset=train,
+            k=k,
+            balanced=False
+        )
+
+        val_acc, _ = knn_accuracy(
+            latents=train_val,
+            subset=val,
+            k=k,
+            balanced=False
+        )
+
+        balanced_train_acc, _ = knn_accuracy(
+            latents=train,
+            subset=train,
+            k=k,
+            balanced=True
+        )
+
+        balanced_val_acc, _ = knn_accuracy(
+            latents=train_val,
+            subset=val,
+            k=k,
+            balanced=True
+        )
+
+        print(
+            f"\nEpoch {epoch + 1} | KNN accuracy"
+            f"\nTrain accuracy: {train_acc:.4f}"
+            f"\nValidation accuracy: {val_acc:.4f}"
+            f"\nBalanced train accuracy: {balanced_train_acc:.4f}"
+            f"\nBalanced validation accuracy: {balanced_val_acc:.4f}"
+        )
+
+        results = pd.DataFrame([{
+            "epoch": epoch + 1,
+            "train_acc": train_acc,
+            "val_acc": val_acc,
+            "balanced_train_acc": balanced_train_acc,
+            "balanced_val_acc": balanced_val_acc,
+            "k": k
+        }])
+
+        output_dir = os.path.join(self.config["trainer"]["acc_dir"])
+
+        os.makedirs(output_dir, exist_ok=True)
+
+        trial = self.config["trainer"]["trial"]
+        file_path = os.path.join(output_dir, f"{trial}.csv")
+
+        results.to_csv(
+            file_path,
+            mode="a",
+            header=not os.path.exists(file_path),
+            index=False
+        )
+
+        print(f"KNN results saved to {file_path}")
+
+
+        
+

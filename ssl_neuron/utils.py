@@ -476,7 +476,7 @@ def knn_accuracy(
     latents,
     subset=None,
     cell_types=None,
-    k=10,
+    k=5,
     balanced=True,
     print_val=False
 ):
@@ -544,7 +544,22 @@ def knn_accuracy(
 
     return accuracy, results
 
-
+def knn_predictions_by_celltype(space, evaluation, cell_types, k=5):
+    predictions = []
+    accuracies = []
+    for cell_type in cell_types:
+        evaluation_type = evaluation[evaluation["celltype_final"] == cell_type]
+        if evaluation_type.empty:
+            continue
+        type_accuracy, type_results = knn_accuracy(
+            space, subset=evaluation_type, cell_types=[cell_type],
+            k=k, balanced=False, print_val=False
+        )
+        predictions.append(type_results)
+        accuracies.append({"celltype": cell_type, "accuracy": type_accuracy})
+    if not predictions:
+        return pd.DataFrame(columns=["cell_id", "celltype_final", "predicted_celltype", "correct"]), pd.DataFrame(columns=["celltype", "accuracy"])
+    return pd.concat(predictions, ignore_index=True), pd.DataFrame(accuracies)
 
 def save_trial_results(
         cell_meta,
@@ -552,11 +567,6 @@ def save_trial_results(
         TRIAL,
         k=10
     ):
-        accuracy_train_val, _ = knn_accuracy(
-            cell_meta[(cell_meta["split"].isin(["train", "val"]))],
-            k=k,
-            balanced=False
-        )
 
         accuracy_train, _ = knn_accuracy(
             cell_meta[(cell_meta["split"].isin(["train"]))],
@@ -565,16 +575,10 @@ def save_trial_results(
         )
 
         accuracy_val, _ = knn_accuracy(
-            cell_meta[(cell_meta["split"].isin(["train"]))],
+            cell_meta[(cell_meta["split"].isin(["train", "val"]))],
             cell_meta[(cell_meta["split"].isin(["val"]))],
             k=k,
             balanced=False
-        )
-
-        accuracy_train_val_bal, _ = knn_accuracy(
-            cell_meta[(cell_meta["split"].isin(["train", "val"]))],
-            k=k,
-            balanced=True
         )
 
         accuracy_train_bal, _ = knn_accuracy(
@@ -592,12 +596,10 @@ def save_trial_results(
 
         results = {
             "trial": TRIAL,
-            "train_val_acc": accuracy_train_val,
             "train_acc": accuracy_train,
             "val_acc": accuracy_val,
             "balanced_train_acc": accuracy_train_bal,
             "balanced_val_acc": accuracy_val_bal,
-            "balanced_train_val_acc": accuracy_train_val_bal,
             "k": k,
             "confidence": None,
             "max_iter": config["optimizer"]["max_iter"],

@@ -1,0 +1,38 @@
+{
+    "model": {
+        "num_classes": 1000,
+        "dim": 32,
+        "depth": 7,
+        "n_head": 8,
+        "pos_dim": 32,
+        "move_avg": 0.999,
+        "center_avg": 0.9,
+        "teacher_temp": 0.06
+    },
+    "data": {
+        "class": "eyewire2",
+        "path": "/gpfs01/berens/user/pgivehchian/ssl_neuron/ssl_neuron/data/",
+        "n_nodes": 512,
+        "cache_nodes": 2048,
+        "feat_dim": 3,
+        "batch_size": 16,
+        "num_workers": 6,
+        "jitter_var": [1, 1, 0.2],
+        "translate_var": [10, 10, 0],
+        "rotation_axis": "z",
+        "n_drop_branch": 10
+    },
+    "optimizer": {
+        "lr": 0.0001,
+        "max_iter": 35000,
+        "exp_decay": 0.5
+    },
+    "trainer": {
+        "ckpt_dir": "ckpts/",
+        "save_ckpt_every": 10,
+        "seed": null,
+        "losses_dir": "/gpfs01/berens/user/pgivehchian/ssl_neuron/outputs/loss",
+        "latents_dir": "/gpfs01/berens/user/pgivehchian/ssl_neuron/outputs/latents",
+        "acc_dir": "/gpfs01/berens/user/pgivehchian/ssl_neuron/outputs/knn-acc"
+    }
+}

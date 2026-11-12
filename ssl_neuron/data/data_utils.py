@@ -7,6 +7,9 @@ import torch
 import pandas as pd
 from tqdm import tqdm
 import os
+from sklearn.metrics.pairwise import cosine_distances
+from collections import Counter
+from sklearn.metrics import balanced_accuracy_score
 
 from ssl_neuron.datasets import GraphDataset
 from ssl_neuron.utils import neighbors_to_adjacency_torch, compute_eig_lapl_torch_batch
@@ -199,5 +202,86 @@ def extract_latents(config):
 
     cell_meta.to_csv(
         os.path.join(config['trainer']['latents_dir'], f"{config['trainer']['trial']}.csv"),
+        index=False
+    )
+
+
+def predict_knn_accuracy(model, train_loader, val_loader, device, k=10):
+
+    model.eval()
+
+    def extract(loader):
+        X, y = [], []
+
+        with torch.no_grad():
+            for data in loader:
+                f1, f2, a1, a2, cell_ids, labels = data
+
+                f1 = f1.float().to(device)
+                a1 = a1.float().to(device)
+
+                lapl = compute_eig_lapl_torch_batch(a1)
+
+                z = model.student_encoder(f1, a1, lapl)[0]
+
+                X.append(z.cpu().numpy())
+                y.extend(labels)
+
+        return np.concatenate(X), np.asarray(y)
+
+    X_train, y_train = extract(train_loader)
+    X_val, y_val = extract(val_loader)
+
+    def predict(X_query, X_reference, y_reference):
+        distances = cosine_distances(X_query, X_reference)
+        indices = np.argsort(distances, axis=1)[:, :k]
+
+        return np.array([
+            Counter(y_reference[n]).most_common(1)[0][0]
+            for n in indices
+        ])
+
+    # Leave-one-out training accuracy
+    train_distances = cosine_distances(X_train, X_train)
+    np.fill_diagonal(train_distances, np.inf)
+
+    train_indices = np.argsort(train_distances, axis=1)[:, :k]
+
+    train_predictions = np.array([
+        # the most common one in neighbours is the prediction
+        Counter(y_train[n]).most_common(1)[0][0]
+        for n in train_indices
+    ])
+
+    train_acc = balanced_accuracy_score(y_train, train_predictions)
+
+    # Validation predictions using training embeddings
+    val_predictions = predict(X_val, X_train, y_train)
+
+    val_acc = balanced_accuracy_score(y_val, val_predictions)
+
+    model.train()
+
+    return train_acc, val_acc
+
+
+def save_knn_accuracy(epoch, train_acc, val_acc, config):
+
+    path = os.path.join(
+        config["trainer"]["losses_dir"],
+        config["trainer"]["trial"],
+        "knn_accuracy.csv"
+    )
+
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+
+    pd.DataFrame([{
+        "epoch": epoch,
+        "train_knn_accuracy": train_acc,
+        "val_knn_accuracy": val_acc
+    }]).to_csv(
+        path,
+        mode="a",
+        header=not os.path.exists(path),
         index=False
     )
