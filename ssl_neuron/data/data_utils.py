@@ -200,6 +200,18 @@ def extract_latents(config):
     print("Latents matrix shape:", latents.shape)
     print("Rows with embeddings:", cell_meta['latent'].notna().sum())
 
+    data_dir = config['data']['path']
+    train_ids = np.load(os.path.join(data_dir, 'train_ids.npy')).astype(str)
+    val_ids = np.load(os.path.join(data_dir, 'val_ids.npy')).astype(str)
+    test_ids = np.load(os.path.join(data_dir, 'test_ids.npy')).astype(str)
+
+    split_map = {
+        **dict.fromkeys(train_ids, 'train'),
+        **dict.fromkeys(val_ids, 'val'),
+        **dict.fromkeys(test_ids, 'test')
+    }
+    cell_meta['split'] = cell_meta['cell_id'].astype(str).map(split_map)
+
     cell_meta.to_csv(
         os.path.join(config['trainer']['latents_dir'], f"{config['trainer']['trial']}.csv"),
         index=False
