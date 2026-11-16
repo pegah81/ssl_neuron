@@ -6,7 +6,7 @@ from pathlib import Path
 from torch.multiprocessing import Manager
 from torch.utils.data import Dataset, DataLoader
 import pandas as pd
-from ssl_neuron.utils import subsample_graph, rotate_graph, jitter_node_pos, translate_soma_pos, scale_hull, get_leaf_branch_nodes, compute_node_distances, drop_random_branch, remap_neighbors, neighbors_to_adjacency_torch
+from ssl_neuron.utils import subsample_graph, rotate_graph, jitter_node_pos, translate_soma_pos, scale_hull, get_leaf_branch_nodes, compute_node_distances, drop_random_branch, remap_neighbors, neighbors_to_adjacency_torch, BalancedSampler
 from torch.utils.data import WeightedRandomSampler, Sampler
 
 class GraphDataset(Dataset):
@@ -184,7 +184,14 @@ class GraphDataset(Dataset):
     
     def __getsingleitem__(self, index): 
         cell = self.cells[index]
-        return cell['features'], cell['neighbors'], cell['cell_id']
+
+        features = cell['features']
+        neighbors = cell['neighbors']
+        distances = cell['distances']
+        neighbors2, adj_matrix, not_deleted = self._reduce_nodes(neighbors, [int(cell['soma_id'])], distances, cell['leaf_branch_nodes'])
+        new_features = features[not_deleted].copy()
+
+        return new_features, adj_matrix, cell['cell_id']
     
     
     def __getitem__(self, index): 
@@ -196,51 +203,14 @@ class GraphDataset(Dataset):
 
         return features1, features2, adj_matrix1, adj_matrix2
 
+    def get_cell_by_id(self, cell_id):
+        for idx, cell in self.cells.items():
+            if str(cell['cell_id']) == str(cell_id):
+                return cell
 
-# for if I wanna have more samples than the dataset size
-# class BalancedSampler(Sampler):
-#     def __init__(self, labels, alpha=0.5, extra_samples=None):
-#         self.labels = np.asarray(labels)
-#         self.num_samples = len(labels)
+        raise KeyError(f"Cell ID {cell_id} not found")
 
-#         unique_labels, counts = np.unique(
-#             self.labels, return_counts=True
-#         )
-#         class_counts = dict(zip(unique_labels, counts))
 
-#         weights = np.array([
-#             1.0 / (class_counts[label] ** alpha)
-#             for label in self.labels
-#         ])
-
-#         self.extra_samples = (
-#             extra_samples if extra_samples is not None
-#             else self.num_samples // 2
-#         )
-
-#         self.weights = torch.as_tensor(
-#             weights, dtype=torch.double
-#         )
-
-#     def __iter__(self):
-#         # Include every cell once.
-#         all_indices = torch.randperm(self.num_samples)
-
-#         # Draw additional samples with replacement.
-#         extra_indices = torch.multinomial(
-#             self.weights,
-#             self.extra_samples,
-#             replacement=True
-#         )
-
-#         # Combine and shuffle.
-#         indices = torch.cat([all_indices, extra_indices])
-#         indices = indices[torch.randperm(len(indices))]
-
-#         return iter(indices.tolist())
-
-#     def __len__(self):
-#         return self.num_samples + self.extra_samples
     
 
 def build_dataloader(config, use_cuda=torch.cuda.is_available()):
@@ -250,33 +220,28 @@ def build_dataloader(config, use_cuda=torch.cuda.is_available()):
     train_dataset = GraphDataset(config, mode='train')
     labels = train_dataset.sampling_labels
     unique_labels, counts = np.unique(labels, return_counts=True)
-    class_counts = dict(zip(unique_labels, counts))
+    # class_counts = dict(zip(unique_labels, counts))
 
-    alpha = config['data']['oversampling_alpha']
+    # alpha = config['data']['oversampling_alpha']
 
-    sample_weights = [
-        1.0 / (class_counts[label] ** alpha)
-        for label in labels
-    ]
+    # sample_weights = [
+    #     1.0 / (class_counts[label] ** alpha)
+    #     for label in labels
+    # ]
 
-    # For when I want more samples than dataset size
-    # sampler = BalancedSampler(
-    #     labels,
-    #     alpha=config['data']['oversampling_alpha'],
-    #     extra_samples=len(train_dataset) // 2
+    sampler = BalancedSampler(labels)
+
+    # sampler = WeightedRandomSampler(
+    #     weights=sample_weights,
+    #     num_samples=len(train_dataset),
+    #     replacement=True
     # )
-
-    sampler = WeightedRandomSampler(
-        weights=sample_weights,
-        num_samples=len(train_dataset),
-        replacement=True
-    )
 
     train_loader = DataLoader(
             train_dataset,
             batch_size=config['data']['batch_size'], 
             sampler=sampler,
-            drop_last=True,
+            drop_last=False,
             **kwargs)
 
     val_dataset = GraphDataset(config, mode='val')

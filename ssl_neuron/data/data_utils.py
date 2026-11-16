@@ -171,19 +171,20 @@ def extract_latents(config):
     cell_meta['cell_id'] = cell_meta['cell_id'].astype(str)
 
     for i in tqdm(range(dset.num_samples)):
-        feat, neigh, cell_id = dset.__getsingleitem__(i)
+        feat, adj, cell_id = dset.__getsingleitem__(i)
         cell_id = str(cell_id)
+        adj = adj.float().cuda().unsqueeze(0)  # [1, N, N]
 
-        adj = neighbors_to_adjacency_torch(
-            neigh, list(neigh.keys())
-        ).float().cuda()[None, :]
+        # adj = neighbors_to_adjacency_torch(
+        #     neigh, list(neigh.keys())
+        # ).float().cuda()[None, :]
 
         lapl = compute_eig_lapl_torch_batch(
             adj,
             pos_enc_dim=config['model']['pos_dim']
         ).float().cuda()
 
-        feat = torch.from_numpy(feat).float().cuda()[None, :]
+        feat = torch.from_numpy(feat).float().cuda().unsqueeze(0)
 
         with torch.no_grad():
             embedding = model.student_encoder.forward(feat, adj, lapl)[0]

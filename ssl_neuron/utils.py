@@ -7,6 +7,7 @@ from scipy.spatial.transform import Rotation as R
 from sklearn.metrics.pairwise import cosine_distances
 from collections import Counter
 from sklearn.metrics import balanced_accuracy_score
+from torch.utils.data import Sampler
 
 import os
 import pandas as pd
@@ -392,6 +393,77 @@ def plot_neuron(neighbors, node_feats, ax1=0, ax2=1, soma_id=0, ax=None):
     
     sns.despine(trim=1)
 
+def plot_neurons(dset, cell_ids, merged_df=None, ax1=0, ax2=1, soma_id=0):
+    """Plot cells from a GraphDataset, with up to four plots per row.
+
+    Graph data is read from ``dset.get_cell_by_id``. If ``merged_df`` is
+    provided, subtype labels are looked up using its ``cell`` and
+    ``celltype_final`` columns.
+    """
+    ax1, ax2 = int(ax1), int(ax2)
+    n_cells = len(cell_ids)
+    if n_cells == 0:
+        raise ValueError("cell_ids must contain at least one cell ID")
+    ncols = min(n_cells, 4)
+    nrows = int(np.ceil(n_cells / ncols))
+
+    fig, axes = plt.subplots(
+        nrows, ncols,
+        figsize=(5 * ncols, 5 * nrows),
+        squeeze=False
+    )
+    colors = list(sns.dark_palette('#69d', n_colors=4))
+    celltype_by_id = {}
+    if merged_df is not None:
+        required_columns = {'cell', 'celltype_final'}
+        missing_columns = required_columns.difference(merged_df.columns)
+        if missing_columns:
+            raise ValueError(
+                f"merged_df is missing required columns: {sorted(missing_columns)}"
+            )
+        celltype_by_id = dict(zip(
+            merged_df['cell'].astype(str), merged_df['celltype_final']
+        ))
+
+    for idx, cell_id in enumerate(cell_ids):
+        cell = dset.get_cell_by_id(cell_id)
+        features = cell['features']
+        neighbors = cell['neighbors']
+        soma = cell['soma_id']
+        ax = axes.flat[idx]
+        _, dim = features.shape
+        ax.set_aspect('equal')
+        for i, neigh in neighbors.items():
+            for j in neigh:
+                n1, n2 = features[i], features[j]
+
+                c = colors[1] if dim == 3 else colors[np.argmax(n2[4:])]
+
+                ax.plot(
+                    [n1[ax1], n2[ax1]],
+                    [n1[ax2], n2[ax2]],
+                    color=c,
+                    linewidth=1
+                )
+        ax.scatter(
+            features[soma][ax1],
+            features[soma][ax2],
+            color=colors[0],
+            s=15,
+            zorder=10
+        )
+        celltype = celltype_by_id.get(str(cell_id), cell.get('subtype', cell.get('celltype_final')))
+        title = f'Cell ID: {cell_id}'
+        if celltype is not None and not pd.isna(celltype):
+            title += f'\n{celltype}'
+        ax.set_title(title)
+        sns.despine(ax=ax, trim=True)
+
+    for idx in range(n_cells, nrows * ncols):
+        axes.flat[idx].set_visible(False)
+
+    plt.tight_layout()
+    return fig, axes
 
 
 def plot_random_neurons_by_type(
@@ -656,3 +728,30 @@ def save_trial_results(
         return results_df
 
 
+
+class BalancedSampler(Sampler):
+    def __init__(self, labels):
+        self.labels = np.asarray(labels)
+        self.indices_by_label = {
+            label: np.flatnonzero(self.labels == label)
+            for label in np.unique(self.labels)
+        }
+        self.num_samples = max(
+            len(indices) for indices in self.indices_by_label.values()
+        )
+
+    def __iter__(self):
+        indices = []
+        for class_indices in self.indices_by_label.values():
+            indices.extend(class_indices.tolist())
+            extra_count = self.num_samples - len(class_indices)
+            if extra_count:
+                draws = torch.randint(len(class_indices), (extra_count,))
+                indices.extend(class_indices[draws].tolist())
+
+        # Shuffle the balanced epoch.
+        order = torch.randperm(len(indices))
+        return iter([indices[i] for i in order])
+
+    def __len__(self):
+        return len(self.indices_by_label) * self.num_samples

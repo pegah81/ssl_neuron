@@ -30,7 +30,7 @@
         "exp_decay": 0.5
     },
     "trainer": {
-        "ckpt_dir": "ckpts/",
+        "ckpt_dir": "/gpfs01/berens/user/pgivehchian/ssl_neuron/ssl_neuron/ckpts/",
         "save_ckpt_every": 10,
         "seed": null,
         "losses_dir": "/gpfs01/berens/user/pgivehchian/ssl_neuron/outputs/loss",
