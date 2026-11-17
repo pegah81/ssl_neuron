@@ -6,7 +6,7 @@ from pathlib import Path
 from torch.multiprocessing import Manager
 from torch.utils.data import Dataset, DataLoader
 import pandas as pd
-from ssl_neuron.utils import subsample_graph, rotate_graph, jitter_node_pos, translate_soma_pos, scale_hull, get_leaf_branch_nodes, compute_node_distances, drop_random_branch, remap_neighbors, neighbors_to_adjacency_torch, BalancedSampler
+from ssl_neuron.utils import subsample_graph, rotate_graph, jitter_node_pos, translate_soma_pos, scale_hull, get_leaf_branch_nodes, compute_node_distances, drop_random_branch, remap_neighbors, neighbors_to_adjacency_torch, adjacency_to_neighbors, BalancedSampler
 from torch.utils.data import WeightedRandomSampler, Sampler
 
 class GraphDataset(Dataset):
@@ -62,7 +62,7 @@ class GraphDataset(Dataset):
                 # Subsample graphs for faster processing during training.
                 neighbors, not_deleted = subsample_graph(neighbors=neighbors, 
                                                          not_deleted=set(range(len(neighbors))), 
-                                                         keep_nodes=1000, 
+                                                         keep_nodes=config['data']['cache_nodes'], 
                                                          protected=[soma_id])
                 # Remap neighbor indices to 0..999.
                 neighbors, subsampled2new = remap_neighbors(neighbors)
@@ -83,7 +83,7 @@ class GraphDataset(Dataset):
                     'distances': distances,
                     'soma_id': soma_id,
                     'leaf_branch_nodes': leaf_branch_nodes,
-                    'original_n_nodes': original_n_nodes,
+                    'original_n_nodes': original_n_nodes
                 }
 
                 self.cells[count] = item
@@ -135,7 +135,8 @@ class GraphDataset(Dataset):
         not_deleted = self._delete_subbranch(neighbors2, soma_id, distances, leaf_branch_nodes)
 
         # Subsample graphs to fixed number of nodes.
-        neighbors2, not_deleted = subsample_graph(neighbors=neighbors2, not_deleted=not_deleted, keep_nodes=self.n_nodes, protected=soma_id)
+        protected = soma_id if isinstance(soma_id, (list, tuple, set)) else [soma_id]
+        neighbors2, not_deleted = subsample_graph(neighbors=neighbors2, not_deleted=not_deleted, keep_nodes=self.n_nodes, protected=protected)
 
         # Compute new adjacency matrix.
         adj_matrix = neighbors_to_adjacency_torch(neighbors2, not_deleted)
@@ -210,7 +211,16 @@ class GraphDataset(Dataset):
 
         raise KeyError(f"Cell ID {cell_id} not found")
 
+    def get_augmented_cell_by_id(self, cell_id):
+        for idx, cell in self.cells.items():
+            if str(cell['cell_id']) == str(cell_id):
+                features, adj_matrix = self._augment(cell)
+                cell['features'] = features
+                cell['neighbors'] = adjacency_to_neighbors(adj_matrix.numpy())
+                cell['adj_matrix'] = adj_matrix
+                return cell
 
+        raise KeyError(f"Cell ID {cell_id} not found")
     
 
 def build_dataloader(config, use_cuda=torch.cuda.is_available()):

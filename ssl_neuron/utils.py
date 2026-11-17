@@ -10,7 +10,9 @@ from sklearn.metrics import balanced_accuracy_score
 from torch.utils.data import Sampler
 
 import os
+import pickle
 import pandas as pd
+from pathlib import Path
 from tqdm import tqdm
 
 
@@ -87,40 +89,69 @@ def subsample_graph(neighbors=None, not_deleted=None, keep_nodes=200, protected=
 
 
 
-def rotate_graph(pos_matrix, axis=None):
-    ''' Randomly rotate graph in xyz-direction.
+# def rotate_graph(pos_matrix, axis=None):
+#     ''' Randomly rotate graph in xyz-direction.
 
-    Args:
-        pos_matrix: Matrix with xyz-node positions (N x 3).
-        axis: Axis around which to rotate. Defaults to `None`,
-            in which case no rotation is performed.
-    '''
+#     Args:
+#         pos_matrix: Matrix with xyz-node positions (N x 3).
+#         axis: Axis around which to rotate. Defaults to `None`,
+#             in which case no rotation is performed.
+#     '''
+#     if axis is None:
+#         return pos_matrix
+
+#     rotation_matrix = R.random().as_matrix()
+    
+#     if axis == 'x':
+#         rotation_matrix[0, 1] = 0
+#         rotation_matrix[0, 2] = 0
+#         rotation_matrix[0, 0] = 1
+#         rotation_matrix[1, 0] = 0
+#         rotation_matrix[2, 0] = 0
+#     elif axis == 'y':
+#         rotation_matrix[0, 1] = 0
+#         rotation_matrix[1, 0] = 0
+#         rotation_matrix[1, 1] = 1
+#         rotation_matrix[1, 2] = 0
+#         rotation_matrix[2, 1] = 0
+#     elif axis == 'z':
+#         rotation_matrix[0, 2] = 0
+#         rotation_matrix[1, 2] = 0
+#         rotation_matrix[2, 2] = 1
+#         rotation_matrix[2, 0] = 0
+#         rotation_matrix[2, 1] = 0
+
+#     rot_pos_matrix = pos_matrix @ rotation_matrix
+#     return rot_pos_matrix
+
+def rotate_graph(pos_matrix, axis=None):
+    """Randomly rotate graph around one configured axis without distortion."""
     if axis is None:
         return pos_matrix
 
-    rotation_matrix = R.random().as_matrix()
-    
-    if axis == 'x':
-        rotation_matrix[0, 1] = 0
-        rotation_matrix[0, 2] = 0
-        rotation_matrix[0, 0] = 1
-        rotation_matrix[1, 0] = 0
-        rotation_matrix[2, 0] = 0
-    elif axis == 'y':
-        rotation_matrix[0, 1] = 0
-        rotation_matrix[1, 0] = 0
-        rotation_matrix[1, 1] = 1
-        rotation_matrix[1, 2] = 0
-        rotation_matrix[2, 1] = 0
-    elif axis == 'z':
-        rotation_matrix[0, 2] = 0
-        rotation_matrix[1, 2] = 0
-        rotation_matrix[2, 2] = 1
-        rotation_matrix[2, 0] = 0
-        rotation_matrix[2, 1] = 0
+    angle = np.random.uniform(0, 2 * np.pi)
+    c, s = np.cos(angle), np.sin(angle)
 
-    rot_pos_matrix = pos_matrix @ rotation_matrix
-    return rot_pos_matrix
+    if axis == "x":
+        rotation_matrix = np.array([
+            [1,  0,  0],
+            [0,  c, -s],
+            [0,  s,  c],
+        ])
+    elif axis == "y":
+        rotation_matrix = np.array([
+            [ c,  0,  s],
+            [ 0,  1,  0],
+            [-s,  0,  c],
+        ])
+    elif axis == "z":
+        rotation_matrix = np.array([
+            [c, -s,  0],
+            [s,  c,  0],
+            [0,  0,  1],
+        ])
+
+    return pos_matrix @ rotation_matrix
 
 
 def jitter_node_pos(node_positions, scale=(1,1,0.2)):
@@ -389,11 +420,58 @@ def plot_neuron(neighbors, node_feats, ax1=0, ax2=1, soma_id=0, ax=None):
             c = colors[1] if dim == 3 else colors[np.argmax(n2[4:])]
             ax.plot([n1[ax1], n2[ax1]], [n1[ax2], n2[ax2]], color=c, linewidth=1)
 
-    ax.scatter(node_feats[soma_id][ax1], node_feats[soma_id][ax2], color=colors[0], s=10, zorder=10)
+    if soma_id is not None:
+        ax.scatter(node_feats[soma_id][ax1], node_feats[soma_id][ax2], color=colors[0], s=10, zorder=10)
     
     sns.despine(trim=1)
 
-def plot_neurons(dset, cell_ids, merged_df=None, ax1=0, ax2=1, soma_id=0):
+
+def compare_augment_plot(cell_id, dset, merged_df, figsize=(12, 10)):
+    """Compare one raw skeleton with its augmented view in XY and XZ."""
+    cell_dir = Path(dset.config['data']['path']) / 'skeletons' / str(cell_id)
+    raw_features = np.load(cell_dir / 'features.npy')[:, :3]
+    with open(cell_dir / 'neighbors.pkl', 'rb') as f:
+        raw_neighbors = pickle.load(f)
+    augmented_cell = dset.get_augmented_cell_by_id(cell_id)
+
+    labels = merged_df.loc[
+        merged_df['cell'].astype(str) == str(cell_id), 'celltype_final'
+    ].dropna()
+    celltype = labels.iloc[0] if len(labels) else 'Unknown subtype'
+
+    fig, axes = plt.subplots(2, 2, figsize=figsize)
+    augmented_features = augmented_cell['features'][:, :3]
+    all_features = np.concatenate([raw_features, augmented_features])
+
+    for row, (x_axis, y_axis, view) in enumerate([(0, 1, 'XY'), (0, 2, 'XZ')]):
+        plot_neuron(
+            raw_neighbors, raw_features, ax1=x_axis, ax2=y_axis,
+            soma_id=0, ax=axes[row, 0]
+        )
+        axes[row, 0].set_title(f'Raw skeleton ({view})')
+        plot_neuron(
+            augmented_cell['neighbors'], augmented_cell['features'],
+            ax1=x_axis, ax2=y_axis, soma_id=None, ax=axes[row, 1]
+        )
+        axes[row, 1].set_title(f'Augmented view ({view})')
+
+        x_min, x_max = all_features[:, x_axis].min(), all_features[:, x_axis].max()
+        y_min, y_max = all_features[:, y_axis].min(), all_features[:, y_axis].max()
+        x_pad = (x_max - x_min) * 0.05 or 1
+        y_pad = (y_max - y_min) * 0.05 or 1
+        for ax in axes[row]:
+            ax.set_xlim(x_min - x_pad, x_max + x_pad)
+            ax.set_ylim(y_min - y_pad, y_max + y_pad)
+            ax.tick_params(labelbottom=True, labelleft=True)
+            ax.set_xlabel('X' if x_axis == 0 else 'Y')
+            ax.set_ylabel('Y' if y_axis == 1 else 'Z')
+
+    fig.suptitle(f'Cell ID: {cell_id} | Cell type: {celltype}')
+    fig.tight_layout(rect=(0, 0, 1, 0.96))
+    return fig, axes
+
+
+def plot_neurons(dset, cell_ids, merged_df=None, ax1=0, ax2=1, soma_id=0, augment=False):
     """Plot cells from a GraphDataset, with up to four plots per row.
 
     Graph data is read from ``dset.get_cell_by_id``. If ``merged_df`` is
@@ -426,7 +504,10 @@ def plot_neurons(dset, cell_ids, merged_df=None, ax1=0, ax2=1, soma_id=0):
         ))
 
     for idx, cell_id in enumerate(cell_ids):
-        cell = dset.get_cell_by_id(cell_id)
+        if augment:
+            cell = dset.get_augmented_cell_by_id(cell_id)
+        else:
+            cell = dset.get_cell_by_id(cell_id)
         features = cell['features']
         neighbors = cell['neighbors']
         soma = cell['soma_id']

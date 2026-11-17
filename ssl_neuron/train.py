@@ -252,7 +252,7 @@ class Trainer(object):
         val = latents[latents["split"] == "val"].copy()
         train_val = latents.copy()
 
-        k = self.config["trainer"].get("knn_k", 10)
+        k = 5
 
         train_acc, _ = knn_accuracy(
             latents=train,
