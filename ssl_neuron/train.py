@@ -188,33 +188,12 @@ class Trainer(object):
         with torch.no_grad():
             for ds, split in datasets:
                 for i in range(len(ds)):
-                    features, neighbors, cell_id = ds.__getsingleitem__(i)
+                    features, adj, cell_id = ds.__getsingleitem__(i)
 
                     features = torch.as_tensor(
                         features, dtype=torch.float32
                     ).unsqueeze(0).to(self.device)
-
-                    n_nodes = features.shape[1]
-
-                    adj = torch.zeros(
-                        1, n_nodes, n_nodes, device=self.device
-                    )
-
-                    # Build adjacency from the neighbor dictionary.
-                    for node, node_neighbors in neighbors.items():
-                        node = int(node)
-
-                        if node < 0 or node >= n_nodes:
-                            continue
-
-                        if isinstance(node_neighbors, dict):
-                            node_neighbors = node_neighbors.keys()
-
-                        for neighbor in node_neighbors:
-                            neighbor = int(neighbor)
-
-                            if 0 <= neighbor < n_nodes:
-                                adj[0, node, neighbor] = 1.0
+                    adj = adj.to(self.device).unsqueeze(0)
 
                     # Compute positional encoding exactly as in training.
                     lapl = compute_eig_lapl_torch_batch(adj)
