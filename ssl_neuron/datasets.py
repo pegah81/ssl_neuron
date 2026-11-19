@@ -250,8 +250,10 @@ def build_dataloader(config, use_cuda=torch.cuda.is_available()):
     train_loader = DataLoader(
             train_dataset,
             batch_size=config['data']['batch_size'], 
-            sampler=sampler,
-            drop_last=False,
+            shuffle=True,
+            # sampler=sampler,
+            # drop_last=False,
+            drop_last=True,
             **kwargs)
 
     val_dataset = GraphDataset(config, mode='val')

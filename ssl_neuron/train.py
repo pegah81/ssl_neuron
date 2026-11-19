@@ -12,6 +12,10 @@ import pandas as pd
 class Trainer(object):
     def __init__(self, config, model, dataloaders):
         self.device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+        if self.device.type == "cuda":
+            print(f"Using device: {self.device} ({torch.cuda.get_device_name(self.device)})")
+        else:
+            print(f"Using device: {self.device}")
         self.model = model.to(self.device)
         self.config = config
         self.ckpt_dir = config['trainer']['ckpt_dir']

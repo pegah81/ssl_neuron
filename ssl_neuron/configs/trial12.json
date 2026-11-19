@@ -13,7 +13,7 @@
         "class": "eyewire2",
         "path": "/gpfs01/berens/user/pgivehchian/ssl_neuron/ssl_neuron/data/",
         "n_nodes": 512,
-        "cache_nodes": 2048,
+        "cache_nodes": 1000,
         "feat_dim": 3,
         "batch_size": 16,
         "num_workers": 6,

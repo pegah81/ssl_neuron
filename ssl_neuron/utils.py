@@ -11,6 +11,9 @@ from torch.utils.data import Sampler
 
 import os
 import pickle
+import io
+from contextlib import redirect_stdout
+from functools import wraps
 import pandas as pd
 from pathlib import Path
 from tqdm import tqdm
@@ -423,7 +426,7 @@ def plot_neuron(neighbors, node_feats, ax1=0, ax2=1, soma_id=0, ax=None):
     if soma_id is not None:
         ax.scatter(node_feats[soma_id][ax1], node_feats[soma_id][ax2], color=colors[0], s=10, zorder=10)
     
-    sns.despine(trim=1)
+    sns.despine(ax=ax, trim=1)
 
 
 def compare_augment_plot(cell_id, dset, merged_df, figsize=(12, 10)):
@@ -468,6 +471,284 @@ def compare_augment_plot(cell_id, dset, merged_df, figsize=(12, 10)):
 
     fig.suptitle(f'Cell ID: {cell_id} | Cell type: {celltype}')
     fig.tight_layout(rect=(0, 0, 1, 0.96))
+    return fig, axes
+
+
+def _silence_plot_stdout(func):
+    """Suppress incidental console output while building a plot."""
+    @wraps(func)
+    def wrapped(*args, **kwargs):
+        with redirect_stdout(io.StringIO()):
+            return func(*args, **kwargs)
+    return wrapped
+
+
+@_silence_plot_stdout
+def plot_augmentation_effects(
+    cell_ids, config, merged_df, augmentations=None, figsize=None
+):
+    """Plot each cell's full skeleton and isolated configured augmentations.
+
+    ``cell_ids`` may be one cell ID or a sequence of IDs. Each cell has a
+    shared cell ID and subtype heading, followed by XY/XZ row pairs with at
+    most four variants per row. ``augmentations`` selects which variants to
+    include: ``downsample``, ``n_nodes``, ``rotation``, ``jitter``,
+    ``translation``, and ``branch_drop``. Rotation is always around Z. The
+    full skeleton is always included.
+    """
+    if isinstance(cell_ids, (str, bytes)) or np.isscalar(cell_ids):
+        cell_ids = [cell_ids]
+    else:
+        cell_ids = list(cell_ids)
+    if not cell_ids:
+        raise ValueError("cell_ids must contain at least one cell ID")
+
+    available_augmentations = {
+        'downsample': 'Downsampled to cache_nodes',
+        'n_nodes': 'Downsampled to n_nodes',
+        'rotation': 'Rotation around Z only',
+        'jitter': 'Jitter only',
+        'translation': 'Translation only',
+        'branch_drop': 'Branch drop only',
+    }
+    aliases = {
+        'downsampling': 'downsample',
+        'cache_nodes': 'downsample',
+        'model_size': 'n_nodes',
+        'rotate': 'rotation',
+        'translate': 'translation',
+        'drop_branch': 'branch_drop',
+        'branch': 'branch_drop',
+    }
+    if augmentations is None:
+        selected_augmentations = list(available_augmentations)
+    elif isinstance(augmentations, str):
+        selected_augmentations = [augmentations]
+    else:
+        selected_augmentations = list(augmentations)
+    selected_augmentations = [
+        aliases.get(name, name) for name in selected_augmentations
+    ]
+    unknown_augmentations = set(selected_augmentations).difference(
+        available_augmentations
+    )
+    if unknown_augmentations:
+        raise ValueError(
+            f"Unknown augmentations: {sorted(unknown_augmentations)}. "
+            f"Choose from {list(available_augmentations)}."
+        )
+    if len(set(selected_augmentations)) != len(selected_augmentations):
+        raise ValueError("augmentations must not contain duplicates")
+
+    required_columns = {'celltype_final'}
+    id_column = 'cell' if 'cell' in merged_df.columns else 'cell_id'
+    required_columns.add(id_column)
+    missing_columns = required_columns.difference(merged_df.columns)
+    if missing_columns:
+        raise ValueError(
+            f"merged_df is missing required columns: {sorted(missing_columns)}"
+        )
+
+    # Accept either the raw config dictionary or a GraphDataset instance.
+    config_dict = config if isinstance(config, dict) else config.config
+    data_config = config_dict['data']
+    cache_nodes = int(data_config['cache_nodes'])
+    n_nodes = int(data_config['n_nodes'])
+    n_drop_branch = int(data_config['n_drop_branch'])
+    if cache_nodes <= 0 or n_nodes <= 0 or n_drop_branch < 0:
+        raise ValueError(
+            "cache_nodes and n_nodes must be positive, and n_drop_branch "
+            "must be non-negative"
+        )
+
+    def remap_graph(neighbors, features):
+        old_node_ids = sorted(neighbors)
+        remapped_neighbors, _ = remap_neighbors(neighbors)
+        remapped_features = np.asarray(
+            [features[node_id] for node_id in old_node_ids], dtype=float
+        )
+        return remapped_features, remapped_neighbors
+
+    def reduce_to_model_size(neighbors):
+        reduced_neighbors, _ = subsample_graph(
+            neighbors={node: set(adjacent) for node, adjacent in neighbors.items()},
+            not_deleted=set(neighbors),
+            keep_nodes=n_nodes,
+            protected=[0],
+        )
+        return reduced_neighbors
+
+    data_path = Path(data_config['path'])
+    variant_titles = {'full': 'Full skeleton'}
+    variant_titles.update(available_augmentations)
+    variant_titles['downsample'] = f'Downsampled to cache_nodes={cache_nodes}'
+    variant_titles['n_nodes'] = f'Downsampled to n_nodes={n_nodes}'
+    variant_titles['branch_drop'] = (
+        f'Branch drop only (n={n_drop_branch})'
+    )
+    variant_keys = ['full'] + selected_augmentations
+    max_panels_per_row = 4
+    ncols = min(max_panels_per_row, len(variant_keys))
+    groups_per_cell = int(np.ceil(len(variant_keys) / max_panels_per_row))
+    rows_per_cell = 1 + 2 * groups_per_cell
+    if figsize is None:
+        figsize = (
+            4.8 * ncols,
+            (0.55 + 9.0 * groups_per_cell) * len(cell_ids),
+        )
+    fig = plt.figure(figsize=figsize)
+    cell_grid = fig.add_gridspec(
+        rows_per_cell * len(cell_ids),
+        ncols,
+        height_ratios=[
+            ratio
+            for _ in cell_ids
+            for ratio in ([0.55] + [4.5, 4.5] * groups_per_cell)
+        ],
+        hspace=0.34,
+        wspace=0.18,
+    )
+    axes = np.full(
+        (2 * groups_per_cell * len(cell_ids), ncols), None, dtype=object
+    )
+
+    for row, cell_id in enumerate(cell_ids):
+        cell_dir = data_path / 'skeletons' / str(cell_id)
+        raw_features = np.asarray(np.load(cell_dir / 'features.npy'))[:, :3]
+        with open(cell_dir / 'neighbors.pkl', 'rb') as f:
+            raw_neighbors = pickle.load(f)
+        raw_neighbors = {
+            int(node): set(map(int, adjacent))
+            for node, adjacent in raw_neighbors.items()
+        }
+        if len(raw_features) != len(raw_neighbors):
+            raise ValueError(
+                f"Cell {cell_id} has {len(raw_features)} feature rows but "
+                f"{len(raw_neighbors)} graph nodes"
+            )
+
+        cached_neighbors, _ = subsample_graph(
+            neighbors={
+                node: set(adjacent)
+                for node, adjacent in raw_neighbors.items()
+            },
+            not_deleted=set(raw_neighbors),
+            keep_nodes=cache_nodes,
+            protected=[0],
+        )
+        cached_features, cached_neighbors = remap_graph(
+            cached_neighbors, raw_features
+        )
+
+        # Build the common model-sized graph once so jitter and translation
+        # are compared on the same sampled nodes and topology.
+        model_neighbors = reduce_to_model_size(cached_neighbors)
+        model_features, model_neighbors = remap_graph(
+            model_neighbors, cached_features
+        )
+
+        jitter_features = jitter_node_pos(
+            model_features.copy(), scale=data_config['jitter_var']
+        )
+        rotated_features = rotate_graph(
+            model_features.copy(), axis='z'
+        )
+        translated_features = translate_soma_pos(
+            model_features.copy(), scale=data_config['translate_var']
+        )
+
+        branch_neighbors = {
+            node: set(adjacent) for node, adjacent in cached_neighbors.items()
+        }
+        not_deleted = set(branch_neighbors)
+        leaf_branch_nodes = set(get_leaf_branch_nodes(branch_neighbors))
+        distances = compute_node_distances(0, branch_neighbors)
+        for _ in range(n_drop_branch):
+            if not leaf_branch_nodes:
+                break
+            branch_neighbors, dropped_nodes = drop_random_branch(
+                leaf_branch_nodes,
+                branch_neighbors,
+                distances,
+                keep_nodes=n_nodes,
+            )
+            not_deleted -= dropped_nodes
+            leaf_branch_nodes -= dropped_nodes
+        branch_neighbors, _ = subsample_graph(
+            neighbors=branch_neighbors,
+            not_deleted=not_deleted,
+            keep_nodes=n_nodes,
+            protected=[0],
+        )
+        branch_features, branch_neighbors = remap_graph(
+            branch_neighbors, cached_features
+        )
+
+        labels = merged_df.loc[
+            merged_df[id_column].astype(str) == str(cell_id),
+            'celltype_final',
+        ].dropna()
+        celltype = labels.iloc[0] if len(labels) else 'Unknown subtype'
+        cell_start = rows_per_cell * row
+        title_ax = fig.add_subplot(cell_grid[cell_start, :])
+        title_ax.set_axis_off()
+        title_ax.text(
+            0.5,
+            0.5,
+            f'Cell {cell_id} | {celltype}',
+            ha='center',
+            va='center',
+            fontsize=16,
+            fontweight='bold',
+        )
+        variant_data = {
+            'full': (raw_features, raw_neighbors),
+            'downsample': (cached_features, cached_neighbors),
+            'n_nodes': (model_features, model_neighbors),
+            'rotation': (rotated_features, model_neighbors),
+            'jitter': (jitter_features, model_neighbors),
+            'translation': (translated_features, model_neighbors),
+            'branch_drop': (branch_features, branch_neighbors),
+        }
+
+        for variant_index, variant_key in enumerate(variant_keys):
+            variant_group, variant_col = divmod(
+                variant_index, max_panels_per_row
+            )
+            variant_title = variant_titles[variant_key]
+            features, neighbors = variant_data[variant_key]
+            for view_index, (x_axis, y_axis, view) in enumerate(
+                [(0, 1, 'XY'), (0, 2, 'XZ')]
+            ):
+                axes_row = (
+                    row * 2 * groups_per_cell
+                    + variant_group * 2
+                    + view_index
+                )
+                grid_row = cell_start + 1 + variant_group * 2 + view_index
+                axes[axes_row, variant_col] = fig.add_subplot(
+                    cell_grid[grid_row, variant_col]
+                )
+                ax = axes[
+                    axes_row,
+                    variant_col,
+                ]
+                plot_neuron(
+                    neighbors,
+                    features,
+                    ax1=x_axis,
+                    ax2=y_axis,
+                    soma_id=0,
+                    ax=ax,
+                )
+                ax.set_title(
+                    f'{variant_title} | {view}',
+                    fontsize=10,
+                )
+                ax.set_xlabel('X')
+                ax.set_ylabel('Y' if y_axis == 1 else 'Z')
+
+    fig.subplots_adjust(left=0.04, right=0.99, top=0.99, bottom=0.04)
     return fig, axes
 
 
