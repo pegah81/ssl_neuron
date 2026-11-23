@@ -172,7 +172,6 @@ class GraphTransformer(nn.Module):
 
         # Add classification token entry to adjanceny matrix. 
         adj_cls = torch.zeros(B, N + 1, N + 1, device=node_feat.device)
-        # TODO(test if useful)
         adj_cls[:, 0, 0] = 1.
         adj_cls[:, 1:, 1:] = adj
 

@@ -159,7 +159,7 @@ class GraphDataset(Dataset):
         jittered_pos = translate_soma_pos(jittered_pos, scale=self.translate_var)
 
         # Randomly scale the XY hull slightly inward or outward.
-        jittered_pos = scale_hull(jittered_pos, scale_range=self.hull_scale_range)
+        # jittered_pos = scale_hull(jittered_pos, scale_range=self.hull_scale_range)
         
         features[:, :3] = jittered_pos
 

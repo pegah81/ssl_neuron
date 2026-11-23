@@ -143,14 +143,17 @@ def remove_axon(neighbors, features, soma_id):
 
 
 
-def extract_latents(config):
+def extract_latents(config, ckpt=None):
 
     cell_meta = pd.read_csv(os.path.join(config['data']['path'], 'cell_meta.csv'))
     cell_meta['cell_id'] = cell_meta['cell_id'].astype(str)
 
     model = create_model(config)
 
-    state_dict = torch.load(os.path.join(config['trainer']['ckpt_dir'], f"{config['trainer']['trial']}.pt"))
+    if ckpt:
+        state_dict = torch.load(os.path.join(config['trainer']['ckpt_dir'], ckpt))
+    else:
+        state_dict = torch.load(os.path.join(config['trainer']['ckpt_dir'], f"{config['trainer']['trial']}.pt"))
 
     model.load_state_dict(state_dict)
 
@@ -217,6 +220,8 @@ def extract_latents(config):
         os.path.join(config['trainer']['latents_dir'], f"{config['trainer']['trial']}.csv"),
         index=False
     )
+
+    return cell_meta
 
 
 def predict_knn_accuracy(model, train_loader, val_loader, device, k=10):
