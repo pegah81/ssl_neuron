@@ -18,7 +18,7 @@ from ssl_neuron.train import Trainer
 from ssl_neuron.graphdino import create_model
 from ssl_neuron.datasets import build_dataloader
 
-TRIAL = "trial21"
+TRIAL = "trial22"
 parser = argparse.ArgumentParser()
 parser.add_argument('--config', help='Path to config file.', type=str, default=f'./configs/{TRIAL}.json')
 
@@ -33,9 +33,23 @@ def main(args):
 
     # build model 
     model = create_model(config)
-    checkpoint_path = os.path.join(config['trainer']['ckpt_dir'], 'trial20.pt')
-    state_dict = torch.load(checkpoint_path, map_location='cpu')
-    model.load_state_dict(state_dict)
+    # checkpoint_path = os.path.join(config['trainer']['ckpt_dir'], 'trial19.pt')
+    # state_dict = torch.load(checkpoint_path, map_location='cpu')
+
+    # Expand the old xyz-only node projection to include per-node r_median.
+    # Preserve the pretrained xyz weights and let the new radius weights learn.
+    # model_state = model.state_dict()
+    # for encoder_name in ('student_encoder', 'teacher_encoder'):
+    #     weight_name = f'{encoder_name}.to_node_embedding.0.weight'
+    #     if weight_name not in state_dict or weight_name not in model_state:
+    #         continue
+    #     old_weight = state_dict[weight_name]
+    #     new_weight = model_state[weight_name].clone()
+    #     if old_weight.shape[0] == new_weight.shape[0] and old_weight.shape[1] == 3 and new_weight.shape[1] == 4:
+    #         new_weight[:, :3] = old_weight
+    #         state_dict[weight_name] = new_weight
+
+    # model.load_state_dict(state_dict)
 
     trainer = Trainer(config, model, [train_loader, val_loader])
 

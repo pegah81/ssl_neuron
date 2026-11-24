@@ -420,7 +420,9 @@ def plot_neuron(neighbors, node_feats, ax1=0, ax2=1, soma_id=0, ax=None):
     for i, neigh in neighbors.items():
         for j in neigh:
             n1, n2 = node_feats[i], node_feats[j]
-            c = colors[1] if dim == 3 else colors[np.argmax(n2[4:])]
+            # xyz + r_median has four columns; compartment one-hot features,
+            # when present, begin at column four.
+            c = colors[np.argmax(n2[4:8])] if dim >= 8 else colors[1]
             ax.plot([n1[ax1], n2[ax1]], [n1[ax2], n2[ax2]], color=c, linewidth=1)
 
     if soma_id is not None:
@@ -799,7 +801,7 @@ def plot_neurons(dset, cell_ids, merged_df=None, ax1=0, ax2=1, soma_id=0, augmen
             for j in neigh:
                 n1, n2 = features[i], features[j]
 
-                c = colors[1] if dim == 3 else colors[np.argmax(n2[4:])]
+                c = colors[np.argmax(n2[4:8])] if dim >= 8 else colors[1]
 
                 ax.plot(
                     [n1[ax1], n2[ax1]],

@@ -42,6 +42,38 @@ class GraphDataset(Dataset):
         # Load cell ids.
         cell_ids = list(np.load(Path(data_path, f'{mode}_ids.npy')))
 
+        feature_files = [
+            Path(data_path, 'skeletons', str(cell_id), 'features.npy')
+            for cell_id in cell_ids
+        ]
+        sample_file = next((path for path in feature_files if path.exists()), None)
+        if sample_file is None:
+            raise FileNotFoundError(f'No feature files found for {mode} split')
+
+        self.feature_dim = np.load(sample_file, mmap_mode='r').shape[1]
+        if self.feature_dim not in (3, 4):
+            raise ValueError(f'Expected xyz or xyz + r_median, got {self.feature_dim} features')
+        config['data']['feat_dim'] = self.feature_dim
+
+        self.radius_min = None
+        self.radius_max = None
+        if self.feature_dim == 4:
+            train_ids = np.load(Path(data_path, 'train_ids.npy')).astype(str)
+            train_files = [
+                Path(data_path, 'skeletons', str(cell_id), 'features.npy')
+                for cell_id in train_ids
+            ]
+            self.radius_min, self.radius_max = np.inf, -np.inf
+            for path in train_files:
+                if path.exists():
+                    radii = np.load(path, mmap_mode='r')[:, 3]
+                    if not np.isfinite(radii).all():
+                        raise ValueError(f'Non-finite r_median values in {path}')
+                    self.radius_min = min(self.radius_min, radii.min())
+                    self.radius_max = max(self.radius_max, radii.max())
+            if not np.isfinite(self.radius_min):
+                raise ValueError('No training r_median values found')
+
         # Load graphs.
         self.manager = Manager()
         self.cells = self.manager.dict()
@@ -51,6 +83,14 @@ class GraphDataset(Dataset):
             soma_id = 0
 
             features = np.load(Path(data_path, 'skeletons', str(cell_id), 'features.npy'))
+            if features.ndim != 2 or features.shape[1] != self.feature_dim:
+                raise ValueError(
+                    f'Expected {self.feature_dim} features for cell {cell_id}, '
+                    f'got shape {features.shape}'
+                )
+            if self.feature_dim == 4:
+                span = self.radius_max - self.radius_min
+                features[:, 3] = 0 if span == 0 else (features[:, 3] - self.radius_min) / span
             original_n_nodes = len(features)
             with open(Path(data_path, 'skeletons', str(cell_id), 'neighbors.pkl'), 'rb') as f:
                 neighbors = pickle.load(f)
@@ -68,8 +108,10 @@ class GraphDataset(Dataset):
                 neighbors, subsampled2new = remap_neighbors(neighbors)
                 soma_id = subsampled2new[soma_id]
 
-                # Accumulate features of subsampled nodes.
-                features = features[list(subsampled2new.keys()), :3]
+                # Keep all node features; positional encodings use the graph.
+                features = features[
+                    list(subsampled2new.keys()), :self.feature_dim
+                ]
 
                 leaf_branch_nodes = get_leaf_branch_nodes(neighbors)
                 # Using the distances we can infer the direction of an edge.
