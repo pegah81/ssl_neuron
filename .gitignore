@@ -6,6 +6,8 @@
 ssl_neuron/data/skeletons/
 ssl_neuron/data/skeletons copy/
 ssl_neuron/data/cell_meta.csv
+ssl_neuron/data/features_pkl.csv
+ssl_neuron/data/merged_features.csv
 ssl_neuron/ckpts
 ssl_neuron/data/cell_types/
 ssl_neuron/demos/RGC_celltype_comparisons
