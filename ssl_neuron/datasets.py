@@ -50,10 +50,15 @@ class GraphDataset(Dataset):
         if sample_file is None:
             raise FileNotFoundError(f'No feature files found for {mode} split')
 
-        self.feature_dim = np.load(sample_file, mmap_mode='r').shape[1]
+        self.feature_dim = config['data']['feat_dim']
         if self.feature_dim not in (3, 4):
-            raise ValueError(f'Expected xyz or xyz + r_median, got {self.feature_dim} features')
-        config['data']['feat_dim'] = self.feature_dim
+            raise ValueError(f"data.feat_dim must be 3 or 4, got {self.feature_dim}")
+        available_features = np.load(sample_file, mmap_mode='r').shape[1]
+        if available_features < self.feature_dim:
+            raise ValueError(
+                f'Config asks for {self.feature_dim} features, but {sample_file} '
+                f'has only {available_features}'
+            )
 
         self.radius_min = None
         self.radius_max = None
@@ -83,11 +88,12 @@ class GraphDataset(Dataset):
             soma_id = 0
 
             features = np.load(Path(data_path, 'skeletons', str(cell_id), 'features.npy'))
-            if features.ndim != 2 or features.shape[1] != self.feature_dim:
+            if features.ndim != 2 or features.shape[1] < self.feature_dim:
                 raise ValueError(
-                    f'Expected {self.feature_dim} features for cell {cell_id}, '
+                    f'Expected at least {self.feature_dim} features for cell {cell_id}, '
                     f'got shape {features.shape}'
                 )
+            features = features[:, :self.feature_dim]
             if self.feature_dim == 4:
                 span = self.radius_max - self.radius_min
                 features[:, 3] = 0 if span == 0 else (features[:, 3] - self.radius_min) / span

@@ -92,69 +92,69 @@ def subsample_graph(neighbors=None, not_deleted=None, keep_nodes=200, protected=
 
 
 
-# def rotate_graph(pos_matrix, axis=None):
-#     ''' Randomly rotate graph in xyz-direction.
-
-#     Args:
-#         pos_matrix: Matrix with xyz-node positions (N x 3).
-#         axis: Axis around which to rotate. Defaults to `None`,
-#             in which case no rotation is performed.
-#     '''
-#     if axis is None:
-#         return pos_matrix
-
-#     rotation_matrix = R.random().as_matrix()
-    
-#     if axis == 'x':
-#         rotation_matrix[0, 1] = 0
-#         rotation_matrix[0, 2] = 0
-#         rotation_matrix[0, 0] = 1
-#         rotation_matrix[1, 0] = 0
-#         rotation_matrix[2, 0] = 0
-#     elif axis == 'y':
-#         rotation_matrix[0, 1] = 0
-#         rotation_matrix[1, 0] = 0
-#         rotation_matrix[1, 1] = 1
-#         rotation_matrix[1, 2] = 0
-#         rotation_matrix[2, 1] = 0
-#     elif axis == 'z':
-#         rotation_matrix[0, 2] = 0
-#         rotation_matrix[1, 2] = 0
-#         rotation_matrix[2, 2] = 1
-#         rotation_matrix[2, 0] = 0
-#         rotation_matrix[2, 1] = 0
-
-#     rot_pos_matrix = pos_matrix @ rotation_matrix
-#     return rot_pos_matrix
-
 def rotate_graph(pos_matrix, axis=None):
-    """Randomly rotate graph around one configured axis without distortion."""
+    ''' Randomly rotate graph in xyz-direction.
+
+    Args:
+        pos_matrix: Matrix with xyz-node positions (N x 3).
+        axis: Axis around which to rotate. Defaults to `None`,
+            in which case no rotation is performed.
+    '''
     if axis is None:
         return pos_matrix
 
-    angle = np.random.uniform(0, 2 * np.pi)
-    c, s = np.cos(angle), np.sin(angle)
+    rotation_matrix = R.random().as_matrix()
+    
+    if axis == 'x':
+        rotation_matrix[0, 1] = 0
+        rotation_matrix[0, 2] = 0
+        rotation_matrix[0, 0] = 1
+        rotation_matrix[1, 0] = 0
+        rotation_matrix[2, 0] = 0
+    elif axis == 'y':
+        rotation_matrix[0, 1] = 0
+        rotation_matrix[1, 0] = 0
+        rotation_matrix[1, 1] = 1
+        rotation_matrix[1, 2] = 0
+        rotation_matrix[2, 1] = 0
+    elif axis == 'z':
+        rotation_matrix[0, 2] = 0
+        rotation_matrix[1, 2] = 0
+        rotation_matrix[2, 2] = 1
+        rotation_matrix[2, 0] = 0
+        rotation_matrix[2, 1] = 0
 
-    if axis == "x":
-        rotation_matrix = np.array([
-            [1,  0,  0],
-            [0,  c, -s],
-            [0,  s,  c],
-        ])
-    elif axis == "y":
-        rotation_matrix = np.array([
-            [ c,  0,  s],
-            [ 0,  1,  0],
-            [-s,  0,  c],
-        ])
-    elif axis == "z":
-        rotation_matrix = np.array([
-            [c, -s,  0],
-            [s,  c,  0],
-            [0,  0,  1],
-        ])
+    rot_pos_matrix = pos_matrix @ rotation_matrix
+    return rot_pos_matrix
 
-    return pos_matrix @ rotation_matrix
+# def rotate_graph(pos_matrix, axis=None):
+#     """Randomly rotate graph around one configured axis without distortion."""
+#     if axis is None:
+#         return pos_matrix
+
+#     angle = np.random.uniform(0, 2 * np.pi)
+#     c, s = np.cos(angle), np.sin(angle)
+
+#     if axis == "x":
+#         rotation_matrix = np.array([
+#             [1,  0,  0],
+#             [0,  c, -s],
+#             [0,  s,  c],
+#         ])
+#     elif axis == "y":
+#         rotation_matrix = np.array([
+#             [ c,  0,  s],
+#             [ 0,  1,  0],
+#             [-s,  0,  c],
+#         ])
+#     elif axis == "z":
+#         rotation_matrix = np.array([
+#             [c, -s,  0],
+#             [s,  c,  0],
+#             [0,  0,  1],
+#         ])
+
+#     return pos_matrix @ rotation_matrix
 
 
 def jitter_node_pos(node_positions, scale=(1,1,0.2)):

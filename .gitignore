@@ -4,7 +4,7 @@
 **/.ipynb_checkpoints/
 
 ssl_neuron/data/skeletons/
-ssl_neuron/data/skeletons copy/
+ssl_neuron/data/skeletons - after radius/
 ssl_neuron/data/cell_meta.csv
 ssl_neuron/data/features_pkl.csv
 ssl_neuron/data/merged_features.csv
